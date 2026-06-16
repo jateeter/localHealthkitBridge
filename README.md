@@ -78,6 +78,67 @@ replayed across app launches.
 
 ---
 
+## Native iOS Implementation
+
+### Anchored observer (no duplicate delivery)
+
+Register a persistent observer for each HK type. Store the anchor between
+launches in `UserDefaults` so the query resumes from the last-seen sample.
+
+```swift
+func startObserver(for type: HKSampleType) {
+    var anchor: HKQueryAnchor? = loadAnchor(for: type)
+
+    let query = HKAnchoredObjectQuery(
+        type: type,
+        predicate: nil,
+        anchor: anchor,
+        limit: HKObjectQueryNoLimit
+    ) { [weak self] _, samples, _, newAnchor, error in
+        guard error == nil, let samples else { return }
+        self?.post(samples: samples, type: type)
+        anchor = newAnchor
+        self?.saveAnchor(newAnchor, for: type)
+    }
+
+    query.updateHandler = { [weak self] _, samples, _, newAnchor, error in
+        guard error == nil, let samples else { return }
+        self?.post(samples: samples, type: type)
+        anchor = newAnchor
+        self?.saveAnchor(newAnchor, for: type)
+    }
+
+    healthStore.execute(query)
+    healthStore.enableBackgroundDelivery(for: type, frequency: .immediate) { _, _ in }
+}
+```
+
+`enableBackgroundDelivery` wakes the app when new samples are written, even
+when backgrounded. The update handler fires on `HKHealthStore`'s internal queue;
+dispatch to a background serial queue before networking.
+
+### On-device privacy
+
+The bridge is read-only. No HealthKit data is written, cached to disk, or
+forwarded to any third party. The only network egress is the normalized
+four-element vector posted to the configured PE endpoint. Raw HealthKit values
+are included only in the `metadata` field for local audit; remove or gate that
+field if regulatory requirements prohibit it.
+
+### FHIR provenance metadata
+
+Each sample post includes a `metadata` block with the originating FHIR profile
+and LOINC code. These values are informational; the PE does not validate them.
+Retain them if downstream audit or EHR export is required:
+
+| Family | fhirProfile | fhirCode |
+|---|---|---|
+| Blood pressure | `http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure` | `85354-9` |
+| Exercise | — | `55411-3` |
+| Sleep | — | `93832-4` |
+
+---
+
 ## HealthKit Types
 
 | HK type identifier | Bridge family | PE sensor |
