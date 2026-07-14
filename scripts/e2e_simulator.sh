@@ -11,7 +11,11 @@
 set -euo pipefail
 
 PE_BASE_URL="${PE_BASE_URL:-http://127.0.0.1:3004}"
-SIM_NAME="${SIM_NAME:-iPhone 16 Pro}"
+# Prefer the newest Pro-class device; iPhone 17 Pro is the floor.
+SIM_NAME="${SIM_NAME:-$(xcrun simctl list devices available \
+  | grep -oE 'iPhone (1[7-9]|[2-9][0-9])( Pro( Max)?| Air)?' \
+  | sort -Vr | head -1)}"
+SIM_NAME="${SIM_NAME:-iPhone 17 Pro}"
 BUNDLE_ID="org.energyos.HealthKitBridgeApp"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 

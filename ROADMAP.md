@@ -101,7 +101,16 @@ the PE (verified against the contract-aligned TS PE).
   (PE URL, token), sync log, status view driven by `/status`.
 - HealthKit + Background Modes capabilities, privacy strings per README.
 
-### M4 — Simulator e2e (1–2 days)
+### M4 — Simulator e2e (1–2 days) — test-batch legs ✅ 2026-07-14
+
+`scripts/e2e_simulator.sh` passes against both the TS Manager PE and the
+native C++ PE (`bin/perception_engine_server` + `integrations.healthkit-e2e.json`):
+identical normalized vectors at [4320:4344] on both engines. Simulator floor
+is iPhone 17 Pro (script auto-picks the newest Pro-class device).
+Remaining M4: seeded-Health-data run (real anchored queries — needs XCUITest
+to drive the HK permission sheet) and an RE transition in a `health-personal`
+machine against the full universe.
+
 - Simulator against the local universe (`startUniverse.sh`), PE at `127.0.0.1`.
 - Seed Health data in simulator; verify PE `resolved[]`, sensor TTLs, and an RE
   transition in a `health-personal` machine (e.g. SleepQualityMonitor at [4310:4324]).
