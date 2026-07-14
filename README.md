@@ -265,12 +265,16 @@ healthkit:HKCategoryTypeIdentifierSleepAnalysis    → [4340:4344]
 
 ## Token Authentication
 
-The PE checks `HEALTHKIT_BRIDGE_TOKEN` at startup.
+The PE checks `HEALTHKIT_BRIDGE_TOKEN` at startup. Full contract:
+[`docs/INGEST_CONTRACT.md`](docs/INGEST_CONTRACT.md).
 
 | Env set | Behavior |
 |---|---|
 | Not set | All ingest accepted without auth (dev / no-token mode) |
-| Set | Body must contain `bridgeToken` (primary) or `token` (alias). Bearer `Authorization` header is **not** accepted. Wrong or missing token → `401 Unauthorized`. |
+| Set | Either body `bridgeToken` (alias: `token`) **or** an `Authorization: Bearer <token>` header must match. Wrong or missing credentials → `401 Unauthorized`. |
+
+The iOS bridge sends the `Authorization: Bearer` header by default; the body
+field remains supported for curl and legacy clients.
 
 ---
 
@@ -300,11 +304,16 @@ HTTP status: `200` (all resolved) · `207` (partial) · `400` (all unmapped).
 
 ## Runtime Connection
 
-| Runtime | Default PE port | Example base URL |
+Prefer the runtime registry over static ports — `startUniverse.sh` publishes
+`http://<mac-lan-ip>:5999/re-registry.json`, and `instances[].pe_url` is the
+authoritative PE base URL per engine. Universe default allocations:
+
+| Runtime | Universe PE port | Example base URL |
 |---|---|---|
 | CPP (C++ / Boost.Beast) | `5300` | `http://<mac-lan-ip>:5300` |
-| Scala (Akka-HTTP) | `5000` | `http://<mac-lan-ip>:5000` |
+| Scala (Akka-HTTP) | `5100` | `http://<mac-lan-ip>:5100` |
 | LSP (SBCL / Hunchentoot) | `5600` | `http://<mac-lan-ip>:5600` |
+| TypeScript (Manager PE) | `3004` | `http://<mac-lan-ip>:3004` |
 
 Do not use `localhost` from the simulator or a physical iPhone unless the PE
 is running inside that same device. For simulator-to-Mac, `127.0.0.1` with
