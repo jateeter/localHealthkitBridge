@@ -89,7 +89,14 @@ historical backfill beyond anchor init, in-app chat UI, multi-device identity.
   round-trip; `URLProtocol`-mocked tests.
 - Unit tests: normalizer boundaries, anchor persistence, retry/auth failure paths.
 
-### M3 — Host app (2 days)
+### M3 — Host app (2 days) ✅ 2026-07-14
+
+Shipped as `App/` (XcodeGen `project.yml` + SwiftUI sources; `.xcodeproj`
+is generated, not committed). Launch args `-peBaseURL/-bridgeToken/-autoTestPush`
+override settings for scripted runs. `scripts/e2e_simulator.sh` covers the
+simulator half of M4: build → boot → launch → assert healthkit sensors on
+the PE (verified against the contract-aligned TS PE).
+
 - Minimal SwiftUI app embedding the package: authorize button, settings
   (PE URL, token), sync log, status view driven by `/status`.
 - HealthKit + Background Modes capabilities, privacy strings per README.

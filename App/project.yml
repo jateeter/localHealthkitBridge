@@ -1,0 +1,37 @@
+name: HealthKitBridgeApp
+options:
+  bundleIdPrefix: org.energyos
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  HealthKitBridge:
+    path: ..
+targets:
+  HealthKitBridgeApp:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: HealthKitBridge
+    info:
+      path: Info.plist
+      properties:
+        UILaunchScreen: {}
+        CFBundleDisplayName: HK Bridge
+        NSHealthShareUsageDescription: Reads blood pressure, exercise, and sleep data to feed your local RealityEngine Perception Engine.
+        NSHealthUpdateUsageDescription: This app does not write health data.
+        NSAppTransportSecurity:
+          # The PE runs on the local network over plain HTTP (see
+          # docs/INGEST_CONTRACT.md "Discovering the PE").
+          NSAllowsLocalNetworking: true
+        # Default PE target — override in Settings inside the app.
+        HealthKitBridgePEBaseURL: http://127.0.0.1:3004
+    entitlements:
+      path: HealthKitBridgeApp.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.background-delivery: true
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic

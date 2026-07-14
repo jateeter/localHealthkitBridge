@@ -61,3 +61,10 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# XcodeGen output — regenerate with `xcodegen generate` in App/
+App/HealthKitBridgeApp.xcodeproj/
+App/build/
+App/Info.plist
+App/HealthKitBridgeApp.entitlements
+build/
