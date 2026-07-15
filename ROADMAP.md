@@ -101,20 +101,32 @@ the PE (verified against the contract-aligned TS PE).
   (PE URL, token), sync log, status view driven by `/status`.
 - HealthKit + Background Modes capabilities, privacy strings per README.
 
-### M4 — Simulator e2e (1–2 days) — test-batch legs ✅ 2026-07-14
+### M4 — Simulator e2e (1–2 days) ✅ 2026-07-14
 
 `scripts/e2e_simulator.sh` passes against both the TS Manager PE and the
 native C++ PE (`bin/perception_engine_server` + `integrations.healthkit-e2e.json`):
 identical normalized vectors at [4320:4344] on both engines. Simulator floor
 is iPhone 17 Pro (script auto-picks the newest Pro-class device).
-Remaining M4: seeded-Health-data run (real anchored queries — needs XCUITest
-to drive the HK permission sheet) and an RE transition in a `health-personal`
-machine against the full universe.
 
-- Simulator against the local universe (`startUniverse.sh`), PE at `127.0.0.1`.
-- Seed Health data in simulator; verify PE `resolved[]`, sensor TTLs, and an RE
-  transition in a `health-personal` machine (e.g. SleepQualityMonitor at [4310:4324]).
-- Cross-check payload byte-parity with the runtime fixture files.
+Seeded leg ✅ 2026-07-14: `scripts/e2e_seeded.sh` runs
+`SeededFlowUITests` — launch with `-seedHealthData`, accept the combined
+read+write HealthKit sheet (bottom `UIA.Health.Allow.Button` on iOS 26),
+DEBUG-only `DebugSeeder` writes nominal samples, anchored observers deliver,
+then the script asserts the PE's healthkit sensors changed. Passes against
+the TS PE and the universe C++ PE (`startUniverse.sh --no-openclaw`).
+Blood-pressure correlation type removed from the read-authorization set
+(HealthKit rejects authorization requests for correlation types).
+
+RE transition ✅ 2026-07-14: new corpus machine
+`RealityEngine_Machines/machines/domains/health-personal/HealthKitVitalsMonitor.json`
+(gte, input [4320:4324], output [4304:4308]) classifies bridge BP readings
+into NOMINAL/HYPERTENSIVE/CRISIS; clinical cutoffs live in element
+`threshold`s (engines binarize input and pattern at each element's threshold
+before gte). Verified on cpp-1/lsp-1/scala-1: seeded reading
+[0.6,0.65,0.32,1] fires exactly `hk-vitals-nominal` → [1,0,0,0] on all
+three. Universe healthkit wiring enabled in
+`RealityEngine_CI/config/integrations.example.json` (bridge `enabled: true`
++ per-type mappings at the contract regions).
 
 ### M5 — Device e2e + background delivery (2–3 days)
 - Physical iPhone + Apple Watch over Mac LAN IP; token auth enabled.

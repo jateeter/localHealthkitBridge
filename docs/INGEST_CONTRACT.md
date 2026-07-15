@@ -79,7 +79,9 @@ Mappings come from the runtime's integrations config
 in each runtime repo). Default regions: blood pressure `[4320:4324]`,
 exercise `[4330:4334]`, sleep `[4340:4344]`. Machines in
 `RealityEngine_Machines/machines/domains/health-personal/` consume these
-regions.
+regions — `HealthKitVitalsMonitor.json` (gte, input `[4320:4324]`, output
+`[4304:4308]`) classifies bridge BP readings into
+NOMINAL/HYPERTENSIVE/CRISIS.
 
 ## Response
 

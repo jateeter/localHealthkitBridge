@@ -27,6 +27,8 @@ This repo contains the iOS HealthKit → Perception Engine bridge: a Swift packa
 ```bash
 swift build
 swift test
+PE_BASE_URL=... [HEALTHKIT_BRIDGE_TOKEN=...] ./scripts/e2e_simulator.sh   # test-batch leg
+PE_BASE_URL=... [HEALTHKIT_BRIDGE_TOKEN=...] ./scripts/e2e_seeded.sh      # seeded XCUITest leg
 ```
 
 ## Contract Rules

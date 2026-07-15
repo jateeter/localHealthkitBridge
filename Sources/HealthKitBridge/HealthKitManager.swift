@@ -31,10 +31,13 @@ public final class HealthKitManager: @unchecked Sendable {
         { HKQuantityType.quantityType(forIdentifier: $0)! }
     }
 
-    /// Read-only authorization set per the README.
+    /// Read-only authorization set per the README.  Note: the blood-pressure
+    /// correlation type must NOT appear here — HealthKit raises
+    /// NSInvalidArgumentException when authorization is requested for a
+    /// correlation type; authorizing the component quantities is sufficient
+    /// to query the correlation.
     public static var readTypes: Set<HKObjectType> {
         [
-            HKCorrelationType.correlationType(forIdentifier: .bloodPressure)!,
             quantity(.bloodPressureSystolic),
             quantity(.bloodPressureDiastolic),
             quantity(.heartRate),

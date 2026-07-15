@@ -15,6 +15,11 @@ struct HealthKitBridgeApp: App {
                     if UserDefaults.standard.bool(forKey: "autoTestPush") {
                         await model.sendTestBatch()
                     }
+#if DEBUG
+                    if UserDefaults.standard.bool(forKey: "seedHealthData") {
+                        await model.seedAndObserve()
+                    }
+#endif
                 }
         }
     }

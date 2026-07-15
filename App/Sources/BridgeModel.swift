@@ -1,4 +1,5 @@
 import Foundation
+import HealthKit
 import SwiftUI
 import HealthKitBridge
 
@@ -104,6 +105,23 @@ final class BridgeModel: ObservableObject {
         ]
         await coordinator?.deliver(samples)
     }
+
+#if DEBUG
+    /// e2e hook (`-seedHealthData 1`): combined read+write authorization,
+    /// seed nominal samples, then arm the observers — fully hands-off apart
+    /// from the permission sheet, which the UI test accepts.
+    func seedAndObserve() async {
+        do {
+            try await DebugSeeder.seed(store: HKHealthStore())
+            authorized = true
+            appendLocal(.info, "Seeded debug Health data")
+        } catch {
+            appendLocal(.failed, "Seed failed: \(error.localizedDescription)")
+            return
+        }
+        if !observing { toggleObservers() }
+    }
+#endif
 
     func refreshStatus() async {
         statusError = nil
