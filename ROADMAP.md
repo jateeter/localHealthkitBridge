@@ -128,10 +128,24 @@ three. Universe healthkit wiring enabled in
 `RealityEngine_CI/config/integrations.example.json` (bridge `enabled: true`
 + per-type mappings at the contract regions).
 
-### M5 — Device e2e + background delivery (2–3 days)
+### M5 — Device e2e + background delivery (2–3 days) — tooling ready 2026-07-15
 - Physical iPhone + Apple Watch over Mac LAN IP; token auth enabled.
 - Validate background delivery wakes + posts with app backgrounded/killed;
   TTL expiry and re-arm behavior; silent-failure logging (>30 min alert rule).
+
+Silent-failure logging ✅ 2026-07-15: `BridgeCoordinator.startSilenceWatchdog`
+emits one `.alert` sync-log event per silence episode after the threshold
+(default 30 min; app arms it with observers, `-silenceThresholdMinutes`
+overrides); the next successful delivery re-arms it. Covered by
+`BridgeCoordinatorTests` (25/25 package tests green).
+
+Device leg tooling ✅ 2026-07-15: `scripts/e2e_device.sh` — discovers a
+paired iPhone via `devicectl`, refuses loopback PE URLs (defaults to the
+Mac's LAN IP), signs with `DEVELOPMENT_TEAM`, installs + launches with
+`-autoTestPush` + token, asserts PE sensors, then prints the manual
+background-delivery checklist (backgrounded/killed wake, TTL re-arm,
+silent-failure alert). Remaining M5: run the leg on physical hardware —
+blocked on a connected device.
 
 ### M6 — Release hygiene (1–2 days)
 - README truth pass against shipped behavior; tag `v0.1.0`; optional TestFlight.

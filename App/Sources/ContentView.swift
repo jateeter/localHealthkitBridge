@@ -89,6 +89,7 @@ struct ContentView: View {
         case .unmapped: return "questionmark.circle"
         case .failed: return "xmark.circle"
         case .info: return "info.circle"
+        case .alert: return "exclamationmark.triangle.fill"
         }
     }
 
@@ -98,6 +99,7 @@ struct ContentView: View {
         case .unmapped: return .orange
         case .failed: return .red
         case .info: return .secondary
+        case .alert: return .yellow
         }
     }
 }

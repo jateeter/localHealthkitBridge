@@ -88,10 +88,14 @@ final class BridgeModel: ObservableObject {
             manager.stopObservers()
             observing = false
             appendLocal(.info, "Observers stopped")
+            Task { await coordinator?.stopSilenceWatchdog() }
         } else {
             manager.startObservers()
             observing = true
             appendLocal(.info, "Anchored observers started (background delivery armed)")
+            let minutes = UserDefaults.standard.double(forKey: "silenceThresholdMinutes")
+            let threshold = (minutes > 0 ? minutes : 30) * 60
+            Task { await coordinator?.startSilenceWatchdog(threshold: threshold) }
         }
     }
 
