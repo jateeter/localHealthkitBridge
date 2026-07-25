@@ -1,0 +1,80 @@
+SolidAuthSwift
+
+Version 0.0.23 (9/24/21)
+    Changed away from using CommonCrypto in SolidAuthSwiftTools as it's not available on Linux.
+    
+Version 0.0.22 (9/24/21)
+    Remove broken import
+    
+Version 0.0.21 (9/24/21)
+    Added ath claim to DPoP.
+    
+Version 0.0.20 (9/20/21)
+    Enable token request, again, to use public/private key.
+    Add "Request tokens" back into demo UI.
+
+Version 0.0.19 (9/19/21)
+    Add access token to ServerParameters.
+    
+Version 0.0.18 (9/19/21)
+    Moved RDF code to iOS-only because of
+        https://github.com/kasei/serd-parser/issues/3
+
+Version 0.0.17 (9/19/21)
+    Added non-optional webid to ServerParameters.
+    Added code for user info request.
+    
+Version 0.0.16 (9/19/21)
+    Moved `func from(fromBase64` to a Decodable extension.
+    
+Version 0.0.15 (9/18/21)
+    Refactor logout code.
+    Move toBase64 method to a Encodable extension.
+    
+Version 0.0.14 (9/18/21)
+    Bringing this in line with sending refresh token to server.
+    See https://github.com/crspybits/SolidAuthSwift/issues/6
+
+Version 0.0.13 (9/13/21)
+    Now have authentication working with issuer: "https://broker.pod.inrupt.com"
+        See https://github.com/crspybits/SolidAuthSwift/issues/3
+
+Version 0.0.12 (9/12/21)
+    Add https to RDF parsing in "/" storage case.
+    
+Version 0.0.11 (9/12/21)
+    Update to SerdParser 0.0.3.
+    
+Version 0.0.10 (9/12/21)
+    Added some RDF parsing to attempt to get the storage IRI from the users profile, after sign in. See https://github.com/SyncServerII/ServerSolidAccount/issues/4
+    Added logout functionality.
+    Refactored the demo app UI code.
+    More progress on getting this code working with https://broker.pod.inrupt.com.
+
+Version 0.0.9 (8/18/21)
+    Added toBase64() method.
+    
+Version 0.0.8 (8/18/21)
+    Update packages.
+    
+Version 0.0.7 (8/17/21)
+    Removed ServerPacket-- not sending email/username to server via CredentialsSolid.
+    Added CodeParameters from base64 method.
+    
+Version 0.0.6 (7/31/21)
+    Add CodingKeys
+
+Version 0.0.5 (7/31/21)
+    Changed repo name of Swift-JWT.
+    
+Version 0.0.4 (7/31/21)
+    Changed name of Swift-JWT to Swift-JWT2 due to conflict
+    
+Version 0.0.3 (7/31/21)
+    Added ServerPacket
+    
+Version 0.0.2 (7/31/21)
+	Update to a specific package version.
+    
+Version 0.0.1 (7/31/21)
+	Initial version.

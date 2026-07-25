@@ -17,11 +17,34 @@ final class BridgeConfigurationTests: XCTestCase {
     func testLoadFallsBackToEnvironment() {
         let config = BridgeConfiguration.load(
             info: [:],
-            environment: ["HEALTHKIT_PE_BASE_URL": "http://127.0.0.1:3004"]
+            environment: ["HEALTHKIT_PE_BASE_URL": "http://127.0.0.1:3004/api"]
         )
         XCTAssertEqual(config?.peBaseURL.absoluteString, "http://127.0.0.1:3004")
         XCTAssertEqual(config?.bridgeId, "healthkit-ios-bridge")
         XCTAssertNil(config?.bridgeToken)
+    }
+
+    func testNormalizeBaseURLAcceptsApiPathAndStatusPath() {
+        XCTAssertEqual(
+            BridgeConfiguration.normalizedBaseURL(from: " http://192.168.1.194:3004/api ")?.absoluteString,
+            "http://192.168.1.194:3004"
+        )
+        XCTAssertEqual(
+            BridgeConfiguration.normalizedBaseURL(from: "http://192.168.1.194:3004/api/integrations/healthkit/status")?.absoluteString,
+            "http://192.168.1.194:3004"
+        )
+    }
+
+    func testNormalizeBaseURLAddsHttpSchemeForHostPort() {
+        XCTAssertEqual(
+            BridgeConfiguration.normalizedBaseURL(from: "192.168.1.194:3004/api")?.absoluteString,
+            "http://192.168.1.194:3004"
+        )
+    }
+
+    func testNormalizeBaseURLRejectsUnsupportedSchemes() {
+        XCTAssertNil(BridgeConfiguration.normalizedBaseURL(from: "ftp://192.168.1.194:3004/api"))
+        XCTAssertNil(BridgeConfiguration.normalizedBaseURL(from: "not a url"))
     }
 
     func testLoadReturnsNilWithoutBaseURL() {

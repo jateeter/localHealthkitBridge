@@ -24,6 +24,7 @@ targets:
           # The PE runs on the local network over plain HTTP (see
           # docs/INGEST_CONTRACT.md "Discovering the PE").
           NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Sends owner-approved HealthKit summaries to your local Perception Engine on your private network.
         # Default PE target — override in Settings inside the app.
         HealthKitBridgePEBaseURL: http://127.0.0.1:3004
     entitlements:

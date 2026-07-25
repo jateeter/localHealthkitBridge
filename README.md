@@ -319,6 +319,46 @@ Do not use `localhost` from the simulator or a physical iPhone unless the PE
 is running inside that same device. For simulator-to-Mac, `127.0.0.1` with
 the runtime port works. For a physical iPhone, use the Mac's LAN IP.
 
+For the physical-device M5 validation, the PE must also load the canonical
+HealthKit-Spezi registry so the bridge's three vector families resolve:
+
+```bash
+cd /Users/johnt/workspace/GitHub/RealityEngine_Manager/perception-engine/backend
+PORT=3004 HOST=0.0.0.0 VECTOR_SIZE=7680 \
+INTEGRATIONS_CONFIG=/Users/johnt/workspace/GitHub/RealityEngine_CPP/config/integrations.healthkit-spezi.example.json \
+npm start
+```
+
+Then run the iPhone validation from this repository. Use the TeamIdentifier
+from the installed provisioning profile; for the current Personal Team profile
+validated on 2026-07-24 that value was `YH5P86WUDA`. The certificate label may
+include a different parenthetical value such as `933628TM7J`; that is not
+necessarily the value Xcode expects for `DEVELOPMENT_TEAM`.
+
+```bash
+DEVELOPMENT_TEAM=YH5P86WUDA \
+PE_BASE_URL=http://<mac-lan-ip>:3004 \
+./scripts/e2e_device.sh
+```
+
+The app and device script also accept pasted API URLs such as
+`http://<mac-lan-ip>:3004/api`; they normalize that input to the PE origin
+before calling the canonical HealthKit endpoints.
+
+Expected automated M5 result:
+
+```text
+PASS: 3 healthkit sensors live on the PE
+healthkit.blood-pressure @ [4320:4324]
+healthkit.exercise @ [4330:4334]
+healthkit.sleep @ [4340:4344]
+```
+
+The script validates installation, launch, LAN delivery, and registry mapping.
+The HealthKit background-delivery portion remains a manual checklist because it
+requires owner permission prompts and real or manually entered Health samples on
+the device.
+
 Per-runtime bridge setup guides with example configs and e2e verification:
 
 - CPP → [`RealityEngine_CPP/docs/HEALTHKIT_SPEZI_BRIDGE.md`](https://github.com/jateeter/RealityEngine_CPP/blob/main/docs/HEALTHKIT_SPEZI_BRIDGE.md)

@@ -28,6 +28,32 @@ public struct BridgeConfiguration: Sendable, Equatable {
         self.requestTimeout = requestTimeout
     }
 
+    /// Normalizes operator-entered PE URLs to the origin the bridge contract
+    /// expects. The iOS UI often receives pasted API URLs such as
+    /// `http://192.168.1.194:3004/api`; the HTTP client appends canonical
+    /// `/api/integrations/healthkit/...` paths itself, so storing the origin
+    /// avoids confusing connection diagnostics and future path drift.
+    public static func normalizedBaseURL(from raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let withScheme = trimmed.range(of: "://") == nil ? "http://\(trimmed)" : trimmed
+        guard var components = URLComponents(string: withScheme),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = components.host,
+              !host.isEmpty else {
+            return nil
+        }
+
+        components.scheme = scheme
+        components.path = ""
+        components.query = nil
+        components.fragment = nil
+
+        return components.url
+    }
+
     /// Loads configuration from an Info.plist-style dictionary, falling back
     /// to process environment variables. Keys:
     ///   - `HealthKitBridgePEBaseURL` / env `HEALTHKIT_PE_BASE_URL` (required)
@@ -43,7 +69,7 @@ public struct BridgeConfiguration: Sendable, Equatable {
             return nil
         }
         guard let raw = value("HealthKitBridgePEBaseURL", "HEALTHKIT_PE_BASE_URL"),
-              let url = URL(string: raw) else { return nil }
+              let url = normalizedBaseURL(from: raw) else { return nil }
         return BridgeConfiguration(
             peBaseURL: url,
             bridgeId: value("HealthKitBridgeId", "HEALTHKIT_BRIDGE_ID") ?? "healthkit-ios-bridge",

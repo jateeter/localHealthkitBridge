@@ -25,20 +25,33 @@ final class BridgeModel: ObservableObject {
 
     init() {
         let info = Bundle.main.infoDictionary
-        peBaseURL = defaults.string(forKey: "peBaseURL")
+        let environment = ProcessInfo.processInfo.environment
+        peBaseURL = launchArgumentValue(for: "peBaseURL")
+            ?? environment["PE_BASE_URL"]
+            ?? environment["HEALTHKIT_PE_BASE_URL"]
+            ?? defaults.string(forKey: "peBaseURL")
             ?? (info?["HealthKitBridgePEBaseURL"] as? String)
             ?? "http://127.0.0.1:3004"
-        bridgeId = defaults.string(forKey: "bridgeId") ?? "healthkit-ios-bridge"
-        bridgeToken = defaults.string(forKey: "bridgeToken") ?? ""
+        bridgeId = launchArgumentValue(for: "bridgeId")
+            ?? environment["HEALTHKIT_BRIDGE_ID"]
+            ?? defaults.string(forKey: "bridgeId")
+            ?? "healthkit-ios-bridge"
+        bridgeToken = launchArgumentValue(for: "bridgeToken")
+            ?? environment["HEALTHKIT_BRIDGE_TOKEN"]
+            ?? environment["BRIDGE_TOKEN"]
+            ?? defaults.string(forKey: "bridgeToken")
+            ?? ""
         applyConfiguration()
     }
 
     /// Rebuild the coordinator from the current settings and persist them.
     func applyConfiguration() {
-        guard let url = URL(string: peBaseURL), url.scheme != nil else {
+        let enteredBaseURL = peBaseURL
+        guard let url = BridgeConfiguration.normalizedBaseURL(from: enteredBaseURL) else {
             appendLocal(.failed, "Invalid PE base URL: \(peBaseURL)")
             return
         }
+        peBaseURL = url.absoluteString
         defaults.set(peBaseURL, forKey: "peBaseURL")
         defaults.set(bridgeId, forKey: "bridgeId")
         defaults.set(bridgeToken, forKey: "bridgeToken")
@@ -65,6 +78,10 @@ final class BridgeModel: ObservableObject {
         manager = HealthKitManager(onBatch: { samples in
             Task { await coordinator.deliver(samples) }
         })
+        print("HealthKitBridge configured peBaseURL=\(url.absoluteString) bridgeId=\(bridgeId) tokenConfigured=\(!bridgeToken.isEmpty)")
+        if enteredBaseURL != peBaseURL {
+            appendLocal(.info, "Normalized PE base URL to \(peBaseURL)")
+        }
         appendLocal(.info, "Configured for \(url.absoluteString) as \(bridgeId)")
     }
 
@@ -107,6 +124,7 @@ final class BridgeModel: ObservableObject {
             SampleNormalizer.exercise(activeEnergyKcal: 320, exerciseMinutes: 42, steps: 6100, sourceName: "HK Bridge Test"),
             SampleNormalizer.sleep(totalHours: 7.2, remHours: 1.6, coreHours: 4.0, sourceName: "HK Bridge Test"),
         ]
+        print("HealthKitBridge test batch requested sampleCount=\(samples.count) peBaseURL=\(peBaseURL)")
         await coordinator?.deliver(samples)
     }
 
@@ -135,5 +153,30 @@ final class BridgeModel: ObservableObject {
 
     private func appendLocal(_ kind: SyncEvent.Kind, _ message: String) {
         log.insert(SyncEvent(kind: kind, message: message), at: 0)
+    }
+}
+
+func launchArgumentValue(for key: String) -> String? {
+    let arguments = ProcessInfo.processInfo.arguments
+    let flag = "-\(key)"
+    guard let index = arguments.firstIndex(of: flag) else { return nil }
+    let valueIndex = arguments.index(after: index)
+    guard valueIndex < arguments.endIndex else { return nil }
+    let value = arguments[valueIndex]
+    return value.hasPrefix("-") ? nil : value
+}
+
+func launchArgumentBool(for key: String) -> Bool {
+    guard let value = launchArgumentValue(for: key) else {
+        return ProcessInfo.processInfo.arguments.contains("-\(key)")
+    }
+    return !["0", "false", "no"].contains(value.lowercased())
+}
+
+func launchEnvironmentBool(_ keys: String...) -> Bool {
+    let environment = ProcessInfo.processInfo.environment
+    return keys.contains { key in
+        guard let value = environment[key] else { return false }
+        return !["0", "false", "no"].contains(value.lowercased())
     }
 }

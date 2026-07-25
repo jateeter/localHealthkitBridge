@@ -92,11 +92,13 @@ public actor BridgeCoordinator {
     public func deliver(_ samples: [IngestSample]) async {
         guard !samples.isEmpty else { return }
         batchCounter += 1
+        print("HealthKitBridge deliver start sampleCount=\(samples.count) anchorToken=batch-\(batchCounter)")
         do {
             let result = try await client.ingest(samples: samples, anchorToken: "batch-\(batchCounter)")
             lastSync = Date()
             silenceAlerted = false
             let resolved = result.response.resolved.compactMap(\.sensorId)
+            print("HealthKitBridge deliver success status=\(result.statusCode) resolved=\(resolved.count) unmapped=\(result.response.unmapped.count)")
             if !resolved.isEmpty {
                 emit(.init(kind: .delivered, message: "HTTP \(result.statusCode) → \(resolved.joined(separator: ", "))"))
             }
@@ -104,8 +106,10 @@ public actor BridgeCoordinator {
                 emit(.init(kind: .unmapped, message: "\(miss.type ?? "?"): \(miss.reason ?? "unmapped")"))
             }
         } catch BridgeError.unauthorized {
+            print("HealthKitBridge deliver failed unauthorized")
             emit(.init(kind: .failed, message: "401 — bridge token rejected"))
         } catch {
+            print("HealthKitBridge deliver failed error=\(String(describing: error))")
             emit(.init(kind: .failed, message: String(describing: error)))
         }
     }

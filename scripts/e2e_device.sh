@@ -19,6 +19,16 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
 PE_BASE_URL="${PE_BASE_URL:-http://${LAN_IP}:3004}"
 case "$PE_BASE_URL" in
+  http://*|https://*) ;;
+  *) PE_BASE_URL="http://$PE_BASE_URL" ;;
+esac
+PE_BASE_URL="${PE_BASE_URL%%\?*}"
+PE_BASE_URL="${PE_BASE_URL%%#*}"
+case "$PE_BASE_URL" in
+  */api|*/api/*) PE_BASE_URL="${PE_BASE_URL%%/api*}" ;;
+esac
+PE_BASE_URL="${PE_BASE_URL%/}"
+case "$PE_BASE_URL" in
   *127.0.0.1*|*localhost*)
     echo "PE_BASE_URL is loopback ($PE_BASE_URL) — the phone cannot reach it. Use the Mac's LAN IP." >&2
     exit 1 ;;
@@ -37,6 +47,26 @@ echo "   $DEVICE_NAME ($DEVICE_ID)"
 
 echo "── PE preflight (from Mac): $PE_BASE_URL"
 curl -sf "$PE_BASE_URL/api/integrations/healthkit/status" | jq -e '.ingestEndpoint == "/api/integrations/healthkit/ingest"' > /dev/null
+registry_status="$(curl -sf "$PE_BASE_URL/api/integrations/status" 2>/dev/null || true)"
+if [ -z "$registry_status" ] || ! jq -e '
+  ([.sourceMappings[]?.id] | (
+    index("healthkit:HKCorrelationTypeIdentifierBloodPressure") != null and
+    index("healthkit:HKWorkoutTypeIdentifierWorkout") != null and
+    index("healthkit:HKCategoryTypeIdentifierSleepAnalysis") != null
+  ))
+' > /dev/null <<<"$registry_status"; then
+  cat >&2 <<EOF
+PE is reachable, but it does not advertise the three canonical HealthKit bridge
+family mappings required by this M5 test:
+  - healthkit:HKCorrelationTypeIdentifierBloodPressure
+  - healthkit:HKWorkoutTypeIdentifierWorkout
+  - healthkit:HKCategoryTypeIdentifierSleepAnalysis
+
+Start the PE with the HealthKit-Spezi registry, for example:
+  INTEGRATIONS_CONFIG=/path/to/RealityEngine_CPP/config/integrations.healthkit-spezi.example.json npm start
+EOF
+  exit 1
+fi
 
 before="$(curl -sf "$PE_BASE_URL/api/sources" \
   | jq -c '[.sources[] | select(.origin == "healthkit")] | sort_by(.sensorId)')"
@@ -56,7 +86,14 @@ APP_PATH="$(find build/Build/Products -name HealthKitBridgeApp.app -path '*iphon
 
 echo "── Install + launch on $DEVICE_NAME (PE=$PE_BASE_URL)"
 xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH"
-xcrun devicectl device process launch --terminate-existing --device "$DEVICE_ID" "$BUNDLE_ID" \
+ENV_JSON="$(jq -n \
+  --arg peBaseUrl "$PE_BASE_URL" \
+  --arg bridgeToken "${HEALTHKIT_BRIDGE_TOKEN:-}" \
+  '{AUTO_TEST_PUSH:"1", PE_BASE_URL:$peBaseUrl} + (if $bridgeToken == "" then {} else {HEALTHKIT_BRIDGE_TOKEN:$bridgeToken, BRIDGE_TOKEN:$bridgeToken} end)')"
+xcrun devicectl device process launch --terminate-existing --device "$DEVICE_ID" \
+  --environment-variables "$ENV_JSON" \
+  "$BUNDLE_ID" \
+  -- \
   -autoTestPush 1 \
   -peBaseURL "$PE_BASE_URL" \
   ${HEALTHKIT_BRIDGE_TOKEN:+-bridgeToken "$HEALTHKIT_BRIDGE_TOKEN"}
