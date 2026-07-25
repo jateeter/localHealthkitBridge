@@ -144,8 +144,25 @@ paired iPhone via `devicectl`, refuses loopback PE URLs (defaults to the
 Mac's LAN IP), signs with `DEVELOPMENT_TEAM`, installs + launches with
 `-autoTestPush` + token, asserts PE sensors, then prints the manual
 background-delivery checklist (backgrounded/killed wake, TTL re-arm,
-silent-failure alert). Remaining M5: run the leg on physical hardware —
-blocked on a connected device.
+silent-failure alert).
+
+Automated device leg ✅ 2026-07-24: ran `scripts/e2e_device.sh` on "John's
+iPhone" (iOS 26.6) against LAN PE `http://192.168.1.194:3004` (TS Manager
+PE, CPP healthkit-spezi registry). Signed with Apple Team `YH5P86WUDA`
+(from the signing cert's `OU`; automatic provisioning via
+`-allowProvisioningUpdates`). Build + sign + install + launch
+(`-autoTestPush`) succeeded and all three canonical families landed on the
+PE — `healthkit.blood-pressure` [4320:4324], `healthkit.exercise`
+[4330:4334], `healthkit.sleep` [4340:4344] (TTL 900s). Token-auth verified
+against the PE from the Mac (batch `samples[]` body: no-token → 401,
+bad-bearer → 401, good-bearer → 200) with `HEALTHKIT_BRIDGE_TOKEN` set.
+
+Remaining M5 (manual, needs a physical operator at the device): HealthKit
+authorization + observers, backgrounded/killed background-delivery wake,
+TTL re-arm after expiry, and the silent-failure watchdog alert (break the
+token / stop the PE). The `devicectl` launch also requires the iPhone to be
+**unlocked** — a locked screen fails with `FBSOpenApplicationErrorDomain`
+error 7 ("device was not, or could not be, unlocked").
 
 ### M6 — Release hygiene (1–2 days)
 - README truth pass against shipped behavior; tag `v0.1.0`; optional TestFlight.
