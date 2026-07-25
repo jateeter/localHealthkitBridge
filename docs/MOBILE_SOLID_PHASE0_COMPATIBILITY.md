@@ -112,6 +112,52 @@ health-pim/
 - Anonymized release remains separate from Pod mirroring and must continue to
   use explicit owner approval.
 
+## iPhone Pod Management UX
+
+The iPhone app now exposes a first-pass Pod Management screen from the main
+`HK Bridge` form under `OpenCommons Pod` -> `Manage owner Pod`.
+
+This UX is deliberately an owner-facing control and observability plane:
+
+- Solid Pod connection settings:
+  - issuer URL;
+  - storage IRI;
+  - OpenCommons PIM root path;
+  - custom iOS redirect URI;
+  - local-only insecure HTTP toggle for localhost/docker CSS review.
+- Owner access and mirror status:
+  - authenticated/session state;
+  - DPoP enabled/disabled status;
+  - token-safe session storage display;
+  - HealthKit mirror queue summary;
+  - last safe status/error message.
+- OpenCommons Health domain visibility:
+  - the 11 PIM domains used by the browser application;
+  - matching API names;
+  - expected FHIR resource family for each domain.
+- HealthKit Pod container visibility:
+  - observations;
+  - blood pressure;
+  - workouts;
+  - sleep;
+  - provenance;
+  - consents;
+  - sync manifests;
+  - conflicts;
+  - audit.
+- Owner privacy boundary:
+  - no access tokens, refresh tokens, DPoP private keys, Epic credentials, or
+    raw PHI are displayed;
+  - identifiable HealthKit-derived information remains owner-controlled;
+  - mirroring and anonymized release are separate owner-approved actions.
+
+The current screen is metadata-backed and staged for live Solid integration.
+It does not yet perform Solid-OIDC sign-in or resource CRUD from the production
+app target. The next implementation slice should wire this screen to
+`SolidAuthSwiftUI` for sign-in and `SolidResourcesSwift` for authenticated
+container/resource operations while preserving the existing HealthKitBridge
+ingest contract.
+
 ## Verification commands
 
 From the repository root:
