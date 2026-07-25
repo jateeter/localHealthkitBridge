@@ -3,12 +3,14 @@ import HealthKitBridge
 
 struct ContentView: View {
     @EnvironmentObject private var model: BridgeModel
+    @StateObject private var mobilePod = MobilePodModel()
 
     var body: some View {
         NavigationStack {
             Form {
                 settingsSection
                 statusSection
+                podSection
                 actionsSection
                 logSection
             }
@@ -59,6 +61,27 @@ struct ContentView: View {
             Button("Send test batch") {
                 Task { await model.sendTestBatch() }
             }
+        }
+    }
+
+    private var podSection: some View {
+        Section {
+            NavigationLink {
+                MobilePodManagementView(model: mobilePod)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Manage owner Pod")
+                    Text("Solid sign-in, HealthKit containers, mirror state, and 11 PIM domains")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            LabeledContent("Owner access", value: mobilePod.ownerAccessLabel)
+            LabeledContent("Mirror queue", value: mobilePod.mirrorSummary)
+        } header: {
+            Text("OpenCommons Pod")
+        } footer: {
+            Text("HealthKitBridge remains the validated RealityEngine ingest path. Pod mirroring UX is staged here for owner-controlled Solid management.")
         }
     }
 

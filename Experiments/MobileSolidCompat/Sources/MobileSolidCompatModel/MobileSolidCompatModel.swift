@@ -121,6 +121,125 @@ public struct MobileSolidResourceDescriptor: Codable, Equatable, Sendable {
     }
 }
 
+/// One OpenCommons Health PIM domain visible to the iPhone owner. These mirror
+/// the localhost/browser PIM domains so mobile Pod observability and desktop
+/// Pod management use the same owner vocabulary.
+public struct MobileSolidManagedDomain: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { apiName }
+    public var apiName: String
+    public var displayName: String
+    public var fhirResourceType: String
+
+    public init(apiName: String, displayName: String, fhirResourceType: String) {
+        self.apiName = apiName
+        self.displayName = displayName
+        self.fhirResourceType = fhirResourceType
+    }
+}
+
+/// Owner-visible Solid container row for mobile Pod management. This is
+/// intentionally metadata-only; it can be shown without exposing PHI, tokens,
+/// DPoP keys, or raw resource bodies.
+public struct MobileSolidManagedContainer: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { relativePath }
+    public var title: String
+    public var relativePath: String
+    public var purpose: String
+    public var resourceKind: MobileSolidResourceKind
+    public var mirrorState: MobileSolidMirrorState
+    public var itemCount: Int
+
+    public init(
+        title: String,
+        relativePath: String,
+        purpose: String,
+        resourceKind: MobileSolidResourceKind,
+        mirrorState: MobileSolidMirrorState = .localOnly,
+        itemCount: Int = 0
+    ) {
+        self.title = title
+        self.relativePath = MobileSolidPath.cleanContainerPath(relativePath)
+        self.purpose = purpose
+        self.resourceKind = resourceKind
+        self.mirrorState = mirrorState
+        self.itemCount = itemCount
+    }
+}
+
+public enum OpenCommonsHealthPodProfile {
+    public static let managedDomains: [MobileSolidManagedDomain] = [
+        .init(apiName: "profiles", displayName: "Profiles", fhirResourceType: "Patient"),
+        .init(apiName: "conditions", displayName: "Conditions", fhirResourceType: "Condition"),
+        .init(apiName: "medications", displayName: "Medications", fhirResourceType: "MedicationStatement"),
+        .init(apiName: "allergies", displayName: "Allergies", fhirResourceType: "AllergyIntolerance"),
+        .init(apiName: "immunizations", displayName: "Immunizations", fhirResourceType: "Immunization"),
+        .init(apiName: "vital-signs", displayName: "Vital signs", fhirResourceType: "Observation"),
+        .init(apiName: "providers", displayName: "Providers", fhirResourceType: "PractitionerRole"),
+        .init(apiName: "lab-results", displayName: "Lab results", fhirResourceType: "Observation"),
+        .init(apiName: "insurance-policies", displayName: "Insurance policies", fhirResourceType: "Coverage"),
+        .init(apiName: "documents", displayName: "Documents", fhirResourceType: "DocumentReference"),
+        .init(apiName: "workflow-tasks", displayName: "Workflow tasks", fhirResourceType: "Task"),
+    ]
+
+    public static let healthKitContainers: [MobileSolidManagedContainer] = [
+        .init(
+            title: "HealthKit observations",
+            relativePath: MobileSolidPath.healthKitContainer(for: .observation),
+            purpose: "FHIR-aligned HealthKit Observation resources prepared on iPhone.",
+            resourceKind: .observation
+        ),
+        .init(
+            title: "Blood pressure",
+            relativePath: MobileSolidPath.healthKitContainer(for: .bloodPressure),
+            purpose: "Owner-held blood pressure summaries and validation state.",
+            resourceKind: .bloodPressure
+        ),
+        .init(
+            title: "Workouts",
+            relativePath: MobileSolidPath.healthKitContainer(for: .workout),
+            purpose: "Activity and workout summaries queued for Pod mirroring.",
+            resourceKind: .workout
+        ),
+        .init(
+            title: "Sleep",
+            relativePath: MobileSolidPath.healthKitContainer(for: .sleep),
+            purpose: "Sleep summaries derived from authorized HealthKit samples.",
+            resourceKind: .sleep
+        ),
+        .init(
+            title: "Provenance",
+            relativePath: MobileSolidPath.healthKitContainer(for: .provenance),
+            purpose: "Source, bridge, and validation metadata without raw secrets.",
+            resourceKind: .provenance
+        ),
+        .init(
+            title: "Consents",
+            relativePath: MobileSolidPath.healthKitContainer(for: .consent),
+            purpose: "Owner approval records for mirroring and anonymized release.",
+            resourceKind: .consent
+        ),
+        .init(
+            title: "Sync manifests",
+            relativePath: MobileSolidPath.healthKitContainer(for: .syncManifest),
+            purpose: "Mirror checkpoints shared with localhost/docker CSS.",
+            resourceKind: .syncManifest
+        ),
+        .init(
+            title: "Conflicts",
+            relativePath: MobileSolidPath.healthKitContainer(for: .conflict),
+            purpose: "Records that need owner review before overwrite or merge.",
+            resourceKind: .conflict,
+            mirrorState: .conflict
+        ),
+        .init(
+            title: "Audit",
+            relativePath: MobileSolidPath.healthKitContainer(for: .audit),
+            purpose: "Append-only owner-visible sync and release events.",
+            resourceKind: .audit
+        ),
+    ]
+}
+
 /// Protocol boundary for the future SolidAuthSwift + SolidResourcesSwift
 /// adapter. Keeping the boundary small lets the HealthKit Bridge remain
 /// unchanged while Phase 0 proves auth/resource compatibility.

@@ -39,4 +39,32 @@ final class MobileSolidCompatModelTests: XCTestCase {
         XCTAssertEqual(config.pimRootPath, "health-pim/")
         XCTAssertTrue(config.allowInsecureLocalHTTP)
     }
+
+    func testOpenCommonsPodProfileExposesElevenOwnerDomains() {
+        let domains = OpenCommonsHealthPodProfile.managedDomains
+        XCTAssertEqual(domains.count, 11)
+        XCTAssertEqual(domains.map(\.apiName), [
+            "profiles",
+            "conditions",
+            "medications",
+            "allergies",
+            "immunizations",
+            "vital-signs",
+            "providers",
+            "lab-results",
+            "insurance-policies",
+            "documents",
+            "workflow-tasks",
+        ])
+        XCTAssertTrue(domains.contains { $0.fhirResourceType == "DocumentReference" })
+        XCTAssertTrue(domains.contains { $0.fhirResourceType == "Task" })
+    }
+
+    func testHealthKitContainersCoverMirrorAndAuditUX() {
+        let containers = OpenCommonsHealthPodProfile.healthKitContainers
+        XCTAssertTrue(containers.contains { $0.relativePath == "healthkit/observations/" })
+        XCTAssertTrue(containers.contains { $0.relativePath == "sync/conflicts/" && $0.mirrorState == .conflict })
+        XCTAssertTrue(containers.contains { $0.relativePath == "audit/" })
+        XCTAssertTrue(containers.allSatisfy { !$0.purpose.localizedCaseInsensitiveContains("token") })
+    }
 }
