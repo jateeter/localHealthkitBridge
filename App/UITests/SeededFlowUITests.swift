@@ -5,6 +5,26 @@ import XCTest
 /// wait for the sync log to show a delivered batch.  The companion shell
 /// script asserts the sensors on the PE side.
 final class SeededFlowUITests: XCTestCase {
+    func testPatientMonitorNavigationSurfacesExistingScreens() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Patient Monitor"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["OpenCommons Health"].exists)
+        XCTAssertTrue(app.staticTexts["Information sources"].exists)
+        XCTAssertTrue(app.staticTexts["Pod-maintained information"].exists)
+        XCTAssertTrue(app.staticTexts["HealthKit"].exists)
+        XCTAssertTrue(app.staticTexts["Epic"].exists)
+        XCTAssertTrue(app.staticTexts["Solid Pod"].exists)
+
+        app.tabBars.buttons["Bridge"].tap()
+        XCTAssertTrue(app.navigationBars["HK Bridge"].waitForExistence(timeout: 10))
+
+        app.tabBars.buttons["Pod"].tap()
+        XCTAssertTrue(app.navigationBars["Pod"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Solid Pod connection"].exists)
+    }
+
     func testSeededDeliveryReachesPE() throws {
         let env = ProcessInfo.processInfo.environment
         let app = XCUIApplication()

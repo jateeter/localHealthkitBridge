@@ -1,8 +1,24 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct HealthKitBridgeApp: App {
     @StateObject private var model = BridgeModel()
+
+    init() {
+        let reviewAction = UNNotificationAction(
+            identifier: "OPEN_PATIENT_MONITOR",
+            title: "Review",
+            options: [.foreground]
+        )
+        let category = UNNotificationCategory(
+            identifier: "PATIENT_MONITOR_STATUS",
+            actions: [reviewAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+    }
 
     var body: some Scene {
         WindowGroup {

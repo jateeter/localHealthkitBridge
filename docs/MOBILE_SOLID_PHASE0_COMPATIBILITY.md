@@ -158,6 +158,43 @@ app target. The next implementation slice should wire this screen to
 container/resource operations while preserving the existing HealthKitBridge
 ingest contract.
 
+## Patient Monitor / Manage UX
+
+The iPhone app now uses a standard three-tab iPhone workflow:
+
+1. **Patient** — the simplified owner-facing OpenCommons Health monitor.
+2. **Bridge** — the existing HealthKitBridge PE configuration, authorization,
+   delivery, and sync-log controls.
+3. **Pod** — the existing Solid Pod connection, container, domain, consent, and
+   privacy observability screen.
+
+The Patient tab is intentionally metadata-first and PHI-safe. It presents:
+
+- the OpenCommons Health brand treatment using the heart-record icon and
+  green/blue owner-health theme already used by the PIM branding;
+- Epic, HealthKit, and Solid Pod source cards;
+- all 11 Pod-maintained OpenCommons Health/FHIR domains;
+- owner-safe item counts and review state;
+- direct navigation to HealthKit Bridge controls and Solid Pod management;
+- local iPhone notification controls.
+
+Notification integration is deliberately owner-safe. The app registers a
+`PATIENT_MONITOR_STATUS` notification category and can request/send a local
+Patient Monitor status notification, but the notification body never includes
+diagnoses, values, Epic payloads, HealthKit samples, Pod resource paths, tokens,
+refresh tokens, DPoP key material, or other raw PHI.
+
+### Implementation/deployment roadmap
+
+| Phase | Scope | Validation gate | Git checkpoint |
+| --- | --- | --- | --- |
+| PM-1 | Patient tab with branded source/domain summary and preserved Bridge/Pod tabs | App builds for iOS simulator/generic iOS; UITest verifies Patient, Bridge, and Pod navigation | Feature PR for patient monitor shell |
+| PM-2 | Owner-safe notification framework integration | Notification status renders; request/send actions compile against iOS UserNotifications | Same PR if PM-1 validation passes |
+| PM-3 | Live SolidAuthSwiftUI sign-in from Pod tab | Device run against local/docker CSS; no tokens/PHI visible in UI logs | Follow-up PR |
+| PM-4 | SolidResourcesSwift container list/read/write for metadata manifests | iPhone resource CRUD against local/docker CSS; conflict rows visible | Follow-up PR |
+| PM-5 | Epic FHIR import status surfaced from the OpenCommons PIM Pod | Sandbox OAuth/FHIR import writes owner-approved Pod metadata; Patient tab source card reflects Pod-backed status | Follow-up PR |
+| PM-6 | Device deployment hardening | Signed device install, HealthKit authorization, background delivery, notifications, and Pod status review on iPhone | Release candidate PR |
+
 ## Verification commands
 
 From the repository root:
