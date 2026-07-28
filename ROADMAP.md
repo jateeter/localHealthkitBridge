@@ -167,6 +167,34 @@ error 7 ("device was not, or could not be, unlocked").
 ### M6 — Release hygiene (1–2 days)
 - README truth pass against shipped behavior; tag `v0.1.0`; optional TestFlight.
 
+### M7 — Patient Monitor / Manage iPhone UX ✅ 2026-07-28
+
+The iPhone app now has a patient-first OpenCommons Health monitor as its main
+tab while keeping the original technical visualizations available through
+standard iPhone tab navigation:
+
+- **Patient**: branded OpenCommons Health dashboard for Epic, HealthKit, and
+  owner Solid Pod source status; all 11 Pod-maintained FHIR-aligned domains;
+  owner-safe counts and review indicators.
+- **Bridge**: existing HealthKitBridge configuration, authorization, test
+  batch, PE status, and sync-log workflow.
+- **Pod**: existing Solid Pod issuer/storage/redirect settings, owner access,
+  mirror state, 11-domain visibility, HealthKit containers, consent, conflicts,
+  and audit observability.
+
+Notification integration is in place for the Patient Monitor. The app registers
+a `PATIENT_MONITOR_STATUS` category, requests local notification authorization,
+and sends a PHI-safe local status notification that never includes diagnoses,
+values, raw HealthKit samples, Epic payloads, Pod paths, or credential material.
+
+Deployment/verification gates for this slice:
+
+- Swift package build/test must remain green.
+- `HealthKitBridgeApp` must build for simulator and generic iOS.
+- UI automation must prove the Patient tab and preserved Bridge/Pod navigation.
+- Physical-device verification remains the final confidence gate for HealthKit
+  authorization/background delivery and local notifications.
+
 **Total: ~11–16 working days.** M1/M2 can start in parallel with M0 (only the
 auth decision blocks `IngestClient`).
 

@@ -1,6 +1,7 @@
 import Foundation
 import HealthKit
 import SwiftUI
+import UserNotifications
 import HealthKitBridge
 
 /// Observable façade over the HealthKitBridge package for the SwiftUI host.
@@ -17,6 +18,8 @@ final class BridgeModel: ObservableObject {
     @Published private(set) var statusError: String?
     @Published private(set) var authorized = false
     @Published private(set) var observing = false
+    @Published private(set) var notificationAuthorizationLabel = "Not checked"
+    @Published private(set) var lastNotificationMessage = "No patient-monitor notification sent."
 
     private var coordinator: BridgeCoordinator?
     private var manager: HealthKitManager?
@@ -151,8 +154,79 @@ final class BridgeModel: ObservableObject {
         if status == nil { statusError = "PE status unreachable at \(peBaseURL)" }
     }
 
+    func refreshNotificationStatus() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        notificationAuthorizationLabel = label(for: settings.authorizationStatus)
+    }
+
+    func requestPatientMonitorNotifications() async {
+        do {
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            await refreshNotificationStatus()
+            lastNotificationMessage = granted
+                ? "Patient Monitor notifications are authorized."
+                : "Patient Monitor notifications were not authorized."
+        } catch {
+            notificationAuthorizationLabel = "Error"
+            lastNotificationMessage = "Notification authorization failed: \(error.localizedDescription)"
+        }
+    }
+
+    func sendPatientMonitorNotification() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        if settings.authorizationStatus == .notDetermined {
+            await requestPatientMonitorNotifications()
+        }
+
+        let updatedSettings = await center.notificationSettings()
+        guard [.authorized, .provisional, .ephemeral].contains(updatedSettings.authorizationStatus) else {
+            notificationAuthorizationLabel = label(for: updatedSettings.authorizationStatus)
+            lastNotificationMessage = "Notification not sent because authorization is \(notificationAuthorizationLabel.lowercased())."
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = "OpenCommons Patient Monitor"
+        content.body = "Your owner-controlled health information monitor has a status update ready for review."
+        content.sound = .default
+        content.categoryIdentifier = "PATIENT_MONITOR_STATUS"
+
+        let request = UNNotificationRequest(
+            identifier: "opencommons.patient-monitor.status",
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        )
+
+        do {
+            try await center.add(request)
+            await refreshNotificationStatus()
+            lastNotificationMessage = "Sent an owner-safe patient monitor notification."
+        } catch {
+            notificationAuthorizationLabel = "Error"
+            lastNotificationMessage = "Notification send failed: \(error.localizedDescription)"
+        }
+    }
+
     private func appendLocal(_ kind: SyncEvent.Kind, _ message: String) {
         log.insert(SyncEvent(kind: kind, message: message), at: 0)
+    }
+
+    private func label(for status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .notDetermined:
+            return "Not requested"
+        case .denied:
+            return "Denied"
+        case .authorized:
+            return "Authorized"
+        case .provisional:
+            return "Provisional"
+        case .ephemeral:
+            return "Ephemeral"
+        @unknown default:
+            return "Unknown"
+        }
     }
 }
 
