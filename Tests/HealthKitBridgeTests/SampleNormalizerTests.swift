@@ -12,6 +12,7 @@ final class SampleNormalizerTests: XCTestCase {
         XCTAssertEqual(sample.values[1], 0.48, accuracy: 1e-9)
         XCTAssertEqual(sample.values[2], 0.24, accuracy: 1e-9)
         XCTAssertEqual(sample.values[3], 0.99, accuracy: 1e-9)
+        XCTAssertEqual(sample.sourceMappingId, "healthkit:HKCorrelationTypeIdentifierBloodPressure")
         XCTAssertEqual(sample.metadata?["fhirCode"], "85354-9")
     }
 
@@ -37,6 +38,7 @@ final class SampleNormalizerTests: XCTestCase {
         XCTAssertEqual(sample.values[1], 0.58, accuracy: 1e-9)
         XCTAssertEqual(sample.values[2], 0.42, accuracy: 1e-9)
         XCTAssertEqual(sample.values[3], 0.97, accuracy: 1e-9)
+        XCTAssertEqual(sample.sourceMappingId, "healthkit:HKWorkoutTypeIdentifierWorkout")
     }
 
     func testSleepFractionsAreOfTotalSleep() {
@@ -45,6 +47,25 @@ final class SampleNormalizerTests: XCTestCase {
         XCTAssertEqual(sample.values[0], 0.82, accuracy: 1e-9)
         XCTAssertEqual(sample.values[1], 0.12, accuracy: 1e-9)
         XCTAssertEqual(sample.values[2], 0.18, accuracy: 1e-9)
+        XCTAssertEqual(sample.sourceMappingId, "healthkit:HKCategoryTypeIdentifierSleepAnalysis")
+    }
+
+    func testExplicitSourceMappingCanBeOverriddenOrOmitted() {
+        let overridden = SampleNormalizer.exercise(
+            activeEnergyKcal: 100,
+            exerciseMinutes: 20,
+            steps: 500,
+            sourceMappingId: "healthkit:HKWorkoutTypeIdentifierWorkout:Apple Watch"
+        )
+        XCTAssertEqual(overridden.sourceMappingId, "healthkit:HKWorkoutTypeIdentifierWorkout:Apple Watch")
+
+        let inferredOnly = SampleNormalizer.sleep(
+            totalHours: 7,
+            remHours: 1,
+            coreHours: 4,
+            sourceMappingId: nil
+        )
+        XCTAssertNil(inferredOnly.sourceMappingId)
     }
 
     func testZeroSleepYieldsZeroFractions() {

@@ -12,6 +12,12 @@ public enum SampleNormalizer {
         public static let sleepAnalysis = "HKCategoryTypeIdentifierSleepAnalysis"
     }
 
+    public enum SourceMappingId {
+        public static let bloodPressure = "healthkit:HKCorrelationTypeIdentifierBloodPressure"
+        public static let workout = "healthkit:HKWorkoutTypeIdentifierWorkout"
+        public static let sleepAnalysis = "healthkit:HKCategoryTypeIdentifierSleepAnalysis"
+    }
+
     // Normalization ranges (family → per-slot full-scale value).
     public static let systolicRange = 0.0...200.0     // mmHg
     public static let diastolicRange = 0.0...120.0    // mmHg
@@ -38,11 +44,13 @@ public enum SampleNormalizer {
         diastolicMmHg: Double,
         pulseBpm: Double,
         confidence: Double = 1.0,
-        sourceName: String? = nil
+        sourceName: String? = nil,
+        sourceMappingId: String? = SourceMappingId.bloodPressure
     ) -> IngestSample {
         IngestSample(
             type: HKType.bloodPressure,
             sourceName: sourceName,
+            sourceMappingId: sourceMappingId,
             unit: "mm[Hg]",
             values: [
                 scale(systolicMmHg, over: systolicRange),
@@ -67,11 +75,13 @@ public enum SampleNormalizer {
         exerciseMinutes: Double,
         steps: Double,
         confidence: Double = 1.0,
-        sourceName: String? = nil
+        sourceName: String? = nil,
+        sourceMappingId: String? = SourceMappingId.workout
     ) -> IngestSample {
         IngestSample(
             type: HKType.workout,
             sourceName: sourceName,
+            sourceMappingId: sourceMappingId,
             unit: "normalized",
             values: [
                 scale(activeEnergyKcal, over: activeEnergyRange),
@@ -96,13 +106,15 @@ public enum SampleNormalizer {
         remHours: Double,
         coreHours: Double,
         confidence: Double = 1.0,
-        sourceName: String? = nil
+        sourceName: String? = nil,
+        sourceMappingId: String? = SourceMappingId.sleepAnalysis
     ) -> IngestSample {
         let remFraction = totalHours > 0 ? clamp01(remHours / totalHours) : 0
         let coreFraction = totalHours > 0 ? clamp01(coreHours / totalHours) : 0
         return IngestSample(
             type: HKType.sleepAnalysis,
             sourceName: sourceName,
+            sourceMappingId: sourceMappingId,
             unit: "normalized",
             values: [
                 scale(totalHours, over: sleepHoursRange),

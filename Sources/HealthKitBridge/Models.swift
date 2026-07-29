@@ -4,13 +4,22 @@ import Foundation
 public struct IngestSample: Codable, Equatable, Sendable {
     public var type: String
     public var sourceName: String?
+    public var sourceMappingId: String?
     public var unit: String
     public var values: [Double]
     public var metadata: [String: String]?
 
-    public init(type: String, sourceName: String? = nil, unit: String, values: [Double], metadata: [String: String]? = nil) {
+    public init(
+        type: String,
+        sourceName: String? = nil,
+        sourceMappingId: String? = nil,
+        unit: String,
+        values: [Double],
+        metadata: [String: String]? = nil
+    ) {
         self.type = type
         self.sourceName = sourceName
+        self.sourceMappingId = sourceMappingId
         self.unit = unit
         self.values = values
         self.metadata = metadata
