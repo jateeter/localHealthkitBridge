@@ -187,8 +187,16 @@ Retain raw HealthKit values and FHIR units in `metadata` for downstream audit.
   "bridgeId": "healthkit-ios-bridge",
   "bridgeToken": "<token>",
   "samples": [
-    { "type": "HKCategoryTypeIdentifierSleepAnalysis", "value": 0.82 },
-    { "type": "HKCorrelationTypeIdentifierBloodPressure", "value": 0.72 }
+    {
+      "type": "HKCategoryTypeIdentifierSleepAnalysis",
+      "sourceMappingId": "healthkit:HKCategoryTypeIdentifierSleepAnalysis",
+      "value": 0.82
+    },
+    {
+      "type": "HKCorrelationTypeIdentifierBloodPressure",
+      "sourceMappingId": "healthkit:HKCorrelationTypeIdentifierBloodPressure",
+      "value": 0.72
+    }
   ]
 }
 ```
@@ -200,6 +208,7 @@ Retain raw HealthKit values and FHIR units in `metadata` for downstream audit.
   "bridgeId": "healthkit-ios-bridge",
   "bridgeToken": "your-shared-dev-token",
   "type": "HKCorrelationTypeIdentifierBloodPressure",
+  "sourceMappingId": "healthkit:HKCorrelationTypeIdentifierBloodPressure",
   "unit": "mm[Hg]",
   "values": [0.72, 0.48, 0.24, 0.99],
   "metadata": {
@@ -217,6 +226,7 @@ Retain raw HealthKit values and FHIR units in `metadata` for downstream audit.
   "bridgeId": "healthkit-ios-bridge",
   "bridgeToken": "your-shared-dev-token",
   "type": "HKWorkoutTypeIdentifierWorkout",
+  "sourceMappingId": "healthkit:HKWorkoutTypeIdentifierWorkout",
   "unit": "normalized",
   "values": [0.65, 0.58, 0.42, 0.97],
   "metadata": {
@@ -233,6 +243,7 @@ Retain raw HealthKit values and FHIR units in `metadata` for downstream audit.
   "bridgeId": "healthkit-ios-bridge",
   "bridgeToken": "your-shared-dev-token",
   "type": "HKCategoryTypeIdentifierSleepAnalysis",
+  "sourceMappingId": "healthkit:HKCategoryTypeIdentifierSleepAnalysis",
   "unit": "normalized",
   "values": [0.82, 0.12, 0.18, 0.96],
   "metadata": {

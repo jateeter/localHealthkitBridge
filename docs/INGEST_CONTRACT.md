@@ -26,6 +26,7 @@ Batch (preferred — the iOS bridge always sends batches):
   "samples": [
     {
       "type": "HKCorrelationTypeIdentifierBloodPressure",
+      "sourceMappingId": "healthkit:HKCorrelationTypeIdentifierBloodPressure",
       "sourceName": "Apple Watch",
       "unit": "mm[Hg]",
       "values": [0.72, 0.48, 0.24, 0.99],
@@ -44,6 +45,8 @@ Field rules:
 - `values` — pre-normalized `[0,1]` vector per the family tables in the README.
   A scalar `value` is accepted as a 1-element fallback.
 - `sourceName` — optional; enables the `healthkit:<type>:<sourceName>` mapping key.
+- `sourceMappingId` / `mappingId` — optional explicit mapping id; when present,
+  it is the highest-priority registry lookup and must resolve.
 - `metadata` — optional, informational (FHIR provenance); never validated.
 - `anchorToken` — optional opaque string echoed back in the response so the
   client can confirm which sync cursor a response corresponds to.

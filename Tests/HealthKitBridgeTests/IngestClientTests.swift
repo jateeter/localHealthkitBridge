@@ -98,7 +98,9 @@ final class IngestClientTests: XCTestCase {
         let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         XCTAssertEqual(decoded["bridgeId"] as? String, "healthkit-ios-bridge")
         XCTAssertEqual(decoded["anchorToken"] as? String, "batch-1")
-        XCTAssertEqual((decoded["samples"] as? [[String: Any]])?.count, 1)
+        let samples = try XCTUnwrap(decoded["samples"] as? [[String: Any]])
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(samples.first?["sourceMappingId"] as? String, "healthkit:HKCorrelationTypeIdentifierBloodPressure")
         // Token never travels in the body.
         XCTAssertNil(decoded["bridgeToken"])
     }
