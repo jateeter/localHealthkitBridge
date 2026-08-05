@@ -17,3 +17,61 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+
+  # ROADMAP M7 declares three deployment gates. Until now CI enforced only the
+  # first, so "must build for simulator and generic iOS" and "UI automation must
+  # prove the Patient tab" were aspirational. This job makes them real.
+  app:
+    name: app build + Patient navigation UI test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # App/HealthKitBridgeApp.xcodeproj, Info.plist and the entitlements are
+      # all generated from App/project.yml and are gitignored — the project must
+      # be generated before anything can build.
+      - name: Generate Xcode project
+        working-directory: App
+        run: xcodegen generate
+
+      # Unsigned: hosted runners have no provisioning profile, and this gate is
+      # about the code compiling for a real device slice, not about signing.
+      - name: Build for generic iOS (unsigned)
+        working-directory: App
+        run: |
+          xcodebuild build \
+            -project HealthKitBridgeApp.xcodeproj \
+            -scheme HealthKitBridgeApp \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            -derivedDataPath .build-ci-device
+
+      # Runs only the navigation test. The other test in this bundle
+      # (testSeededDeliveryReachesPE) needs a live PE and drives the HealthKit
+      # permission sheet, so it stays operator-run — see scripts/e2e_seeded.sh.
+      #
+      # A plain launch requests no permissions: HealthKit and notification
+      # authorization are both explicit user actions, so no dialog blocks this.
+      - name: Build for simulator + run Patient navigation UI test
+        working-directory: App
+        run: |
+          xcodebuild test \
+            -project HealthKitBridgeApp.xcodeproj \
+            -scheme HealthKitBridgeApp \
+            -destination "platform=iOS Simulator,name=${SIMULATOR_NAME}" \
+            -only-testing:HealthKitBridgeUITests/SeededFlowUITests/testPatientMonitorNavigationSurfacesExistingScreens \
+            -derivedDataPath .build-ci-sim
+        env:
+          SIMULATOR_NAME: iPhone 17 Pro
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-xcresult
+          path: App/.build-ci-sim/Logs/Test/*.xcresult
+          retention-days: 7

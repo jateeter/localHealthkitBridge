@@ -187,13 +187,27 @@ a `PATIENT_MONITOR_STATUS` category, requests local notification authorization,
 and sends a PHI-safe local status notification that never includes diagnoses,
 values, raw HealthKit samples, Epic payloads, Pod paths, or credential material.
 
-Deployment/verification gates for this slice:
+Deployment/verification gates for this slice, and where each is enforced:
 
-- Swift package build/test must remain green.
-- `HealthKitBridgeApp` must build for simulator and generic iOS.
-- UI automation must prove the Patient tab and preserved Bridge/Pod navigation.
-- Physical-device verification remains the final confidence gate for HealthKit
-  authorization/background delivery and local notifications.
+| Gate | Enforced by |
+|---|---|
+| Swift package build/test green | CI `test` job — `swift build` + `swift test` |
+| `HealthKitBridgeApp` builds for simulator and generic iOS | CI `app` job — `xcodegen generate`, then unsigned `generic/platform=iOS` build and a simulator build |
+| UI automation proves the Patient tab and preserved Bridge/Pod navigation | CI `app` job — `SeededFlowUITests/testPatientMonitorNavigationSurfacesExistingScreens` |
+| HealthKit authorization, background delivery, local notifications | **Manual, physical device.** `scripts/e2e_device.sh` plus the M5 checklist |
+
+The first three were aspirational until the `app` job existed — CI ran only
+`swift build`/`swift test`, so neither the app target nor the UI automation was
+built. They now gate every PR.
+
+The device gate cannot be automated on a hosted runner: it needs a paired
+iPhone, a signing identity, and a human to accept the HealthKit sheet. The
+seeded UI test (`testSeededDeliveryReachesPE`) is likewise operator-run — it
+drives the permission sheet and needs a live PE — so CI runs only the
+navigation test from that bundle.
+
+`scripts/contract_smoke.sh` verifies the ingest contract this repo owns against
+any running PE, independent of upstream CI.
 
 **Total: ~11–16 working days.** M1/M2 can start in parallel with M0 (only the
 auth decision blocks `IngestClient`).
