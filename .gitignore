@@ -68,3 +68,7 @@ App/build/
 App/Info.plist
 App/HealthKitBridgeApp.entitlements
 build/
+
+# xcodebuild derived data from the CI app job (and local reruns of it)
+App/.build-ci-device/
+App/.build-ci-sim/
