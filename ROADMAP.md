@@ -58,6 +58,36 @@ A read-only iOS app (thin SwiftUI host + `HealthKitBridge` SPM package) that:
 **Out of scope for v0.1.0:** CareKit sync (Phase 4a), FHIR export, HK write access,
 historical backfill beyond anchor init, in-app chat UI, multi-device identity.
 
+### Where the data lives (decided 2026-08-09)
+
+Both this bridge and `OpenCommons-Health---Personal-Information-Management`
+are in the integrated RealityEngine MVP.
+
+| Component | Owns |
+|---|---|
+| PIM | the **Solid Community Server**, and the POD(s) it maintains |
+| **This repo** | a device-side pod, **mirrored into** the POD in the SCS |
+
+**The authoritative information repository is the POD(s) within the Solid
+Community Server.** This repo's pod is a mirror source, not a second system of
+record. Where the two disagree the SCS POD is correct, which is what makes
+`MobilePodModel`'s `.conflict` a resolvable state rather than an ambiguous one:
+resolution is toward the SCS copy.
+
+Two consequences for work here:
+
+- A successful device-side write is not durable until it has mirrored.
+  `pendingMirror` is a real intermediate state, not a display detail.
+- Nothing downstream should read the device pod as authoritative.
+
+PE ingest is unaffected — the bridge continues to post normalized vectors to
+`/api/integrations/healthkit/ingest`. That path feeds the perceptual space; the
+pod mirror is about durable ownership of the underlying observations. They are
+separate concerns and both stay.
+
+The boundary is recorded once, in `RealityEngine_CI/docs/MVP_ROADMAP.md` (G4),
+and deliberately not restated in detail here.
+
 ## Milestones
 
 ### M0 — Contract reconciliation (1–2 days)
