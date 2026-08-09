@@ -1,13 +1,35 @@
 # localHealthkitBridge — Roadmap to MVP (v0.1.0)
 
-Last reviewed: 2026-07-13
+Last reviewed: 2026-08-09
 
 ## Where the project stands
 
-This repo is currently **documentation only**: `README.md` (a thorough spec covering
-architecture, HK types, normalization, payloads, auth, and per-runtime connection),
-an MIT `LICENSE`, and an Xcode/SPM `.gitignore`. There is **no Swift code yet** —
-no `Package.swift`, no sources, no tests, no CI.
+**This repo ships a Swift package and an iOS host app, and is in the MVP.**
+
+It was documentation-only when this roadmap was written on 2026-07-13. That
+stopped being true with M1, and the claim survived here long after the code
+did — through M3, M4 and M7. It is corrected rather than quietly deleted
+because a stale status line is how a reader concludes the opposite of the
+truth.
+
+| Here now | |
+|---|---|
+| `Package.swift` + `Sources/HealthKitBridge/` | 7 modules — configuration, anchored HK queries, normalization, ingest client, anchor persistence |
+| `Tests/HealthKitBridgeTests/` | 5 suites, run by `swift test` |
+| `App/` | SwiftUI host app + `App/UITests/` |
+| `scripts/` | 5 scripts: contract smoke, simulator e2e, seeded e2e, device e2e, mobile-Solid phase 0 |
+| `.github/workflows/ci.yml` | `swift build` + `swift test`, plus an unsigned generic-iOS build and a simulator Patient-navigation UI test, on `macos-15` |
+
+### Scope status
+
+The integrated RealityEngine MVP includes **both** this bridge and
+`OpenCommons-Health---Personal-Information-Management`. This app is in scope,
+not deferred — recorded as G4 in `RealityEngine_CI/docs/MVP_ROADMAP.md`, with
+the ownership split and the authority rule (the SCS POD is authoritative)
+summarised under *Where the data lives* below.
+
+The bridge's simulator leg is also a stage of the RealityEngine regression
+local lane and passes green against a live C++ PE.
 
 The server side the bridge talks to is **already built and is not MVP work**:
 
@@ -90,7 +112,10 @@ and deliberately not restated in detail here.
 
 ## Milestones
 
-### M0 — Contract reconciliation (1–2 days)
+### M0 — Contract reconciliation ✅
+
+`docs/INGEST_CONTRACT.md` is the canonical schema, and per-engine parity is
+enforced by `RealityEngine_Machines/tests/integration/healthkit-ingest-contract.spec.ts`.
 - Write `docs/INGEST_CONTRACT.md` as the single canonical schema (batch body:
   `bridgeId`, `bridgeToken`, `samples[{type, sourceName?, unit, values[4], metadata}]`,
   optional `anchorToken`).
@@ -102,12 +127,12 @@ and deliberately not restated in detail here.
   `resolved` / `unmapped` / status-code parity.
 - Fix README port table + note that `re-registry.json` supersedes static ports.
 
-### M1 — Package scaffold + CI (1 day)
+### M1 — Package scaffold + CI ✅
 - `Package.swift` (SpeziHealthKit dependency; **no** SpeziCareKit yet), `Sources/HealthKitBridge/`,
   `Tests/HealthKitBridgeTests/`.
 - GitHub Actions: `swift build` + `swift test` on macOS runner; SwiftLint.
 
-### M2 — Core modules (3–4 days)
+### M2 — Core modules ✅
 - `BridgeConfiguration.swift` — PE base URL, bridgeId/token, retry policy;
   from Info.plist / scheme env.
 - `HealthKitManager.swift` — authorization, `HKAnchoredObjectQuery` per type,
