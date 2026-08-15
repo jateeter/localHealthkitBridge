@@ -1,5 +1,6 @@
 import SwiftUI
 import HealthKitBridge
+import Darwin
 
 struct ContentView: View {
     @EnvironmentObject private var bridge: BridgeModel
@@ -125,7 +126,7 @@ private struct PatientMonitorView: View {
         Section {
             ForEach(mobilePod.patientMonitorDomains) { domain in
                 NavigationLink {
-                    PatientDomainDetailView(domain: domain)
+                    PatientDomainGraphView(domain: domain)
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: domain.attentionRequired ? "exclamationmark.triangle.fill" : "checkmark.seal")
@@ -191,24 +192,282 @@ private struct PatientMonitorView: View {
     }
 }
 
-private struct PatientDomainDetailView: View {
+private struct PatientDomainGraphView: View {
     let domain: PatientMonitorDomain
+    @State private var selectedElementID: PatientSemanticElement.ID?
+    @State private var addElement: PatientSemanticElement?
+
+    private var selectedElement: PatientSemanticElement {
+        if let selectedElementID,
+           let element = domain.semanticElements.first(where: { $0.id == selectedElementID }) {
+            return element
+        }
+        return domain.semanticElements.first ?? PatientSemanticElement(
+            id: "summary",
+            title: domain.title,
+            fhirElement: domain.fhirResourceType,
+            sourceLabel: domain.sourceLabel,
+            currentSummary: "\(domain.itemCount) owner-visible items",
+            statusLabel: domain.attentionRequired ? "Needs review" : "Ready",
+            itemCount: domain.itemCount,
+            graphValue: 0.5,
+            attentionRequired: domain.attentionRequired,
+            systemImage: "circle.grid.cross"
+        )
+    }
 
     var body: some View {
-        Form {
-            Section("Domain") {
-                LabeledContent("Name", value: domain.title)
-                LabeledContent("FHIR resource", value: domain.fhirResourceType)
-                LabeledContent("Current source", value: domain.sourceLabel)
-                LabeledContent("Visible items", value: "\(domain.itemCount)")
-                LabeledContent("Needs review", value: domain.attentionRequired ? "Yes" : "No")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(domain.sourceLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text("FHIR \(domain.fhirResourceType)")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                SemanticSpiderGraphView(
+                    domain: domain,
+                    selectedElementID: $selectedElementID
+                )
+                .frame(minHeight: 340)
+
+                SemanticElementSummaryView(
+                    domain: domain,
+                    element: selectedElement,
+                    onAdd: { addElement = selectedElement }
+                )
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Management policy")
+                        .font(.headline)
+                    Text("This screen is an owner-safe summary. Use the Pod tab for Solid paths, mirror status, and consent/audit containers. Use the Bridge tab for HealthKit delivery and Perception Engine status.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
-            Section("Management policy") {
-                Text("This screen is an owner-safe summary. Use the Pod tab for Solid paths, mirror status, and consent/audit containers. Use the Bridge tab for HealthKit delivery and Perception Engine status.")
-                    .font(.callout)
-            }
+            .padding()
         }
         .navigationTitle(domain.title)
+        .onAppear {
+            selectedElementID = selectedElementID ?? domain.semanticElements.first?.id
+        }
+        .sheet(item: $addElement) { element in
+            SemanticElementEntryView(domain: domain, element: element)
+        }
+    }
+}
+
+private struct SemanticSpiderGraphView: View {
+    let domain: PatientMonitorDomain
+    @Binding var selectedElementID: PatientSemanticElement.ID?
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Canvas { context, size in
+                    drawGraph(context: context, size: size)
+                }
+                .accessibilityElement()
+                .accessibilityLabel("\(domain.title) semantic spider graph")
+                .accessibilityIdentifier("SemanticSpiderGraph-\(domain.id)")
+
+                ForEach(Array(domain.semanticElements.enumerated()), id: \.element.id) { index, element in
+                    SemanticSpiderNode(
+                        element: element,
+                        isSelected: selectedElementID == element.id,
+                        action: { selectedElementID = element.id }
+                    )
+                    .position(nodePosition(in: proxy.size, index: index, count: domain.semanticElements.count))
+                    .onHover { hovering in
+                        if hovering {
+                            selectedElementID = element.id
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func drawGraph(context: GraphicsContext, size: CGSize) {
+        let elements = domain.semanticElements
+        guard elements.count > 2 else { return }
+
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let radius = min(size.width, size.height) * 0.34
+
+        for ring in 1...4 {
+            var path = Path()
+            let ringRadius = radius * CGFloat(ring) / 4
+            for index in elements.indices {
+                let point = graphPoint(center: center, radius: ringRadius, index: index, count: elements.count)
+                if index == 0 {
+                    path.move(to: point)
+                } else {
+                    path.addLine(to: point)
+                }
+            }
+            path.closeSubpath()
+            context.stroke(path, with: .color(.secondary.opacity(0.22)), lineWidth: 1)
+        }
+
+        for index in elements.indices {
+            var axis = Path()
+            axis.move(to: center)
+            axis.addLine(to: graphPoint(center: center, radius: radius, index: index, count: elements.count))
+            context.stroke(axis, with: .color(.secondary.opacity(0.18)), lineWidth: 1)
+        }
+
+        var valuePath = Path()
+        for (index, element) in elements.enumerated() {
+            let clampedValue = min(1, max(0.2, element.graphValue))
+            let point = graphPoint(center: center, radius: radius * CGFloat(clampedValue), index: index, count: elements.count)
+            if index == 0 {
+                valuePath.move(to: point)
+            } else {
+                valuePath.addLine(to: point)
+            }
+        }
+        valuePath.closeSubpath()
+        context.fill(valuePath, with: .color(.teal.opacity(0.18)))
+        context.stroke(valuePath, with: .color(.teal.opacity(0.75)), lineWidth: 2)
+    }
+
+    private func nodePosition(in size: CGSize, index: Int, count: Int) -> CGPoint {
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let radius = min(size.width, size.height) * 0.43
+        return graphPoint(center: center, radius: radius, index: index, count: count)
+    }
+
+    private func graphPoint(center: CGPoint, radius: CGFloat, index: Int, count: Int) -> CGPoint {
+        let angle = (Double(index) / Double(count) * 2 * Double.pi) - (Double.pi / 2)
+        return CGPoint(
+            x: center.x + (Darwin.cos(angle) * radius),
+            y: center.y + (Darwin.sin(angle) * radius)
+        )
+    }
+}
+
+private struct SemanticSpiderNode: View {
+    let element: PatientSemanticElement
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: element.systemImage)
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 42, height: 42)
+                    .background(isSelected ? Color.teal : Color(.secondarySystemBackground), in: Circle())
+                    .foregroundStyle(isSelected ? .white : (element.attentionRequired ? .orange : .teal))
+                    .overlay {
+                        Circle()
+                            .stroke(element.attentionRequired ? Color.orange : Color.teal.opacity(0.45), lineWidth: isSelected ? 3 : 1)
+                    }
+                Text(element.title)
+                    .font(.caption2.weight(.medium))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 86)
+                    .frame(minHeight: 26)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(element.title)
+        .accessibilityIdentifier("SemanticNode-\(element.id)")
+    }
+}
+
+private struct SemanticElementSummaryView: View {
+    let domain: PatientMonitorDomain
+    let element: PatientSemanticElement
+    let onAdd: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(element.title)
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Text(element.statusLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(element.attentionRequired ? .orange : .secondary)
+            }
+
+            VStack(spacing: 10) {
+                summaryRow("Current", element.currentSummary)
+                summaryRow("FHIR element", element.fhirElement)
+                summaryRow("Source", element.sourceLabel)
+                summaryRow("Visible items", "\(element.itemCount)")
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("SemanticElementSummaryTable")
+
+            Button {
+                onAdd()
+            } label: {
+                Label("Add", systemImage: "plus.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .accessibilityIdentifier("SemanticElementAddButton")
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func summaryRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 92, alignment: .leading)
+            Text(value)
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct SemanticElementEntryView: View {
+    let domain: PatientMonitorDomain
+    let element: PatientSemanticElement
+    @Environment(\.dismiss) private var dismiss
+    @State private var value = ""
+    @State private var note = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Context") {
+                    LabeledContent("Domain", value: domain.title)
+                    LabeledContent("Element", value: element.title)
+                    LabeledContent("FHIR element", value: element.fhirElement)
+                }
+                Section("Entry") {
+                    TextField("Value", text: $value)
+                    TextField("Note", text: $note, axis: .vertical)
+                        .lineLimit(3, reservesSpace: true)
+                }
+                Section {
+                    Button("Save draft") {
+                        dismiss()
+                    }
+                    .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .navigationTitle("Add \(element.title)")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .accessibilityIdentifier("SemanticElementEntryModal")
     }
 }
 
