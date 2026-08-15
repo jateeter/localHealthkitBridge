@@ -29,6 +29,25 @@ final class SeededFlowUITests: XCTestCase {
                           "\(source) should be listed as an information source")
         }
 
+        tapPatientDomain("vital-signs", in: app)
+        XCTAssertTrue(app.navigationBars["Vital signs"].waitForExistence(timeout: 20),
+                      "Vital signs should open a semantic graph landing view")
+        XCTAssertTrue(app.descendants(matching: .any)["SemanticSpiderGraph-vital-signs"].waitForExistence(timeout: 10),
+                      "Vital signs should render the semantic spider graph")
+
+        let heartRateNode = app.buttons["SemanticNode-heart-rate"]
+        XCTAssertTrue(heartRateNode.waitForExistence(timeout: 10),
+                      "Heart rate node should be selectable")
+        heartRateNode.tap()
+
+        XCTAssertTrue(app.otherElements["SemanticElementSummaryTable"].waitForExistence(timeout: 10),
+                      "Selecting a node should show its current data summary")
+        app.buttons["SemanticElementAddButton"].tap()
+        XCTAssertTrue(app.navigationBars["Add Heart rate"].waitForExistence(timeout: 10),
+                      "Add should open the data entry modal for the selected semantic element")
+        app.buttons["Cancel"].tap()
+        app.navigationBars["Vital signs"].buttons.firstMatch.tap()
+
         app.tabBars.buttons["Bridge"].tap()
         XCTAssertTrue(app.navigationBars["HK Bridge"].waitForExistence(timeout: 20),
                       "Bridge tab should still reach the existing bridge screen")
@@ -75,5 +94,15 @@ final class SeededFlowUITests: XCTestCase {
             .matching(NSPredicate(format: "label BEGINSWITH 'HTTP 2'"))
             .firstMatch
         XCTAssertTrue(delivered.waitForExistence(timeout: 60), "no delivered batch appeared in the sync log")
+    }
+
+    private func tapPatientDomain(_ id: String, in app: XCUIApplication) {
+        let row = app.buttons["PatientDomain-\(id)"]
+        let maxSwipes = 6
+        for _ in 0..<maxSwipes where !row.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Patient domain \(id) should be reachable")
+        row.tap()
     }
 }

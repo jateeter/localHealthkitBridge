@@ -23,7 +23,7 @@ jobs:
   # prove the Patient tab" were aspirational. This job makes them real.
   app:
     name: app build + Patient navigation UI test
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -66,6 +66,8 @@ jobs:
             -only-testing:HealthKitBridgeUITests/SeededFlowUITests/testPatientMonitorNavigationSurfacesExistingScreens \
             -derivedDataPath .build-ci-sim
         env:
+          # macos-26 currently provides Xcode 26.6 and iOS 26.x simulator
+          # devices, including the iPhone 17 Pro family.
           SIMULATOR_NAME: iPhone 17 Pro
 
       - name: Upload test results on failure
