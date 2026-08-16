@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://realityengine.example.org/schemas/healthkit-ingest.schema.json",
+  "title": "HealthKit Bridge Ingest Payload",
+  "description": "POST /api/integrations/healthkit/ingest. docs/INGEST_CONTRACT.md is the prose source of truth across all four PE runtimes; this makes the same contract checkable, so parity rests on something more than prose plus one spec test. See localHealthkitBridge#9.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bridgeId", "samples"],
+  "properties": {
+    "bridgeId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifies the sending bridge instance. Required: an unattributable ingest cannot be audited, and every contribution must stay attributable (ARBITER_CONTRACT.md 6)."
+    },
+    "anchorToken": {
+      "type": ["string", "null"],
+      "description": "HealthKit anchored-query cursor. Absent on a first send; echoed back so the next query resumes rather than replaying."
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/sample" }
+    }
+  },
+  "$defs": {
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "values"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["bloodPressure", "workout", "sleepAnalysis"],
+          "description": "The HealthKit family. Each maps to one declared service lane — see docs/lane-semantics.json."
+        },
+        "sourceName": { "type": ["string", "null"] },
+        "sourceMappingId": {
+          "type": ["string", "null"],
+          "description": "PE source mapping this sample resolves through. Absent means the PE must resolve it by type."
+        },
+        "unit": {
+          "type": "string",
+          "description": "The unit of the RAW reading, not of `values`. `values` are always normalised to [0,1] against the source range in docs/lane-semantics.json; the raw reading is preserved in metadata. Recording the raw unit here is what makes the normalisation auditable."
+        },
+        "values": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "description": "Exactly four, matching the four-cell lane, each already clamped to [0,1]. A value outside that range is a normalisation fault, not a reading — the arbiter's value domain is dense-float64-clamped-0-1 and an out-of-range contribution would be silently clamped downstream where nothing could attribute it."
+        },
+        "metadata": {
+          "type": ["object", "null"],
+          "additionalProperties": { "type": "string" },
+          "description": "Raw readings and provenance (standard, fhirProfile, fhirCode, raw*). String-valued throughout, so the transport carries no typed structure the runtimes must agree on separately."
+        }
+      }
+    }
+  }
+}
