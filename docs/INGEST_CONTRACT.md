@@ -80,7 +80,44 @@ Per sample, first match wins:
 Mappings come from the runtime's integrations config
 (`INTEGRATIONS_CONFIG`, see `config/integrations.healthkit-spezi.example.json`
 in each runtime repo). Default regions: blood pressure `[4320:4324]`,
-exercise `[4330:4334]`, sleep `[4340:4344]`. Machines in
+exercise `[4330:4334]`, sleep `[4340:4344]`.
+
+> **Lane names and payloads disagree, and the corpus is the one to fix.**
+> `region-allocation.json` calls `[4320:4324]` `healthkit-heart-rate`, but the
+> bridge writes a blood-pressure family there — systolic, diastolic, pulse,
+> confidence — of which only position 2 is a heart-rate quantity. It calls
+> `[4330:4334]` `healthkit-steps`, but the bridge writes an exercise family —
+> active energy, exercise minutes, steps, confidence — of which only position 2
+> is a step count. The regions and arity agree; the names describe one axis of
+> four. `docs/lane-semantics.json` records what each position actually carries.
+>
+> A fourth lane, `healthkit-activity` `[4300:4304]`, is declared with
+> `readers=[FallSensorMotionPreaggregator]` and `writers=[]`, and **the bridge
+> has no family that targets it** — a machine reads a lane nothing writes. That
+> is left unannotated rather than given invented semantics: this repo cannot say
+> what a lane means when it does not write it. Either the bridge gains an
+> activity family or the lane should be withdrawn, and that is a corpus
+> decision. See jateeter/RealityEngine_Machines#59 and #9.
+
+## Lane semantics and payload schema
+
+`docs/lane-semantics.json` supplies what the ingress guardrails need per lane
+position: source unit, source range, canonical UCUM, scale type, conversion
+policy and a staleness ceiling. Every value the bridge writes is normalised to
+`[0,1]` against a declared range with the raw reading kept in metadata, so the
+canonical unit of every position is UCUM `1` and `conversionPolicy` is
+`prohibited` — rescaling an already-normalised value is not a unit conversion,
+it is a second normalisation against a range the consumer cannot see.
+
+`schemas/healthkit-ingest.schema.json` makes this contract checkable rather than
+prose plus one spec test.
+
+**Determinism class: `measured`.** A HealthKit sample is a reading taken by a
+device, not a value produced by a model — exogenous but reproducible under
+replay. `ARBITER_CONTRACT.md` §4.3a ranks `measured`(2) below
+`deterministic`(3) and above `generated`(1). Classifying it upward would let a
+reading outrank a machine determination; downward would let a generated
+assessment outrank a reading. Machines in
 `RealityEngine_Machines/machines/domains/health-personal/` consume these
 regions — `HealthKitVitalsMonitor.json` (gte, input `[4320:4324]`, output
 `[4304:4308]`) classifies bridge BP readings into
