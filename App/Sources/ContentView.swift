@@ -27,6 +27,7 @@ struct ContentView: View {
         }
         .task {
             await bridge.refreshNotificationStatus()
+            await mobilePod.refreshLocalPIMStatus()
         }
     }
 }
@@ -34,6 +35,7 @@ struct ContentView: View {
 private struct PatientMonitorView: View {
     @EnvironmentObject private var bridge: BridgeModel
     @ObservedObject var mobilePod: MobilePodModel
+    @State private var selectedWeekday = Calendar.current.component(.weekday, from: Date())
 
     var body: some View {
         NavigationStack {
@@ -42,16 +44,49 @@ private struct PatientMonitorView: View {
                 sourceSection
                 managedInformationSection
                 actionSection
+                dailyTimelineSection
                 privacySection
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Patient Monitor")
             .accessibilityIdentifier("PatientMonitorView")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    ownerUtilityMenu
+                }
+            }
             .refreshable {
                 await bridge.refreshStatus()
                 await bridge.refreshNotificationStatus()
+                await mobilePod.refreshLocalPIMStatus()
             }
         }
+    }
+
+    private var ownerUtilityMenu: some View {
+        Menu {
+            Button {
+                Task { await mobilePod.refreshLocalPIMStatus() }
+            } label: {
+                Label("Refresh PIM Pod status", systemImage: "arrow.clockwise")
+            }
+            if let termsURL = mobilePod.termsURL {
+                Link(destination: termsURL) {
+                    Label("Terms", systemImage: "doc.text")
+                }
+                .accessibilityIdentifier("PatientTermsLink")
+            }
+            if let disclosureURL = mobilePod.dataDisclosureURL {
+                Link(destination: disclosureURL) {
+                    Label("Data disclosure", systemImage: "hand.raised")
+                }
+                .accessibilityIdentifier("PatientDataDisclosureLink")
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal")
+                .accessibilityLabel("Owner menu")
+        }
+        .accessibilityIdentifier("PatientOwnerMenu")
     }
 
     private var brandingSection: some View {
@@ -126,7 +161,7 @@ private struct PatientMonitorView: View {
         Section {
             ForEach(mobilePod.patientMonitorDomains) { domain in
                 NavigationLink {
-                    PatientDomainGraphView(domain: domain)
+                    PatientDomainGraphView(domainID: domain.id, mobilePod: mobilePod)
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: domain.attentionRequired ? "exclamationmark.triangle.fill" : "checkmark.seal")
@@ -184,18 +219,50 @@ private struct PatientMonitorView: View {
         }
     }
 
+    private var dailyTimelineSection: some View {
+        Section {
+            WeekdaySelector(selectedWeekday: $selectedWeekday)
+            DailyTimelineView(activities: mobilePod.plannedActivities(for: selectedWeekday))
+        } header: {
+            Text("Daily plan")
+        } footer: {
+            Text("Default schedule markers are owner-visible planning metadata. The first activity is the morning medication regimen.")
+        }
+    }
+
     private var privacySection: some View {
         Section("Owner privacy boundary") {
             Text("Epic, HealthKit, and Solid Pod information is presented here as operational status and metadata only. Identifiable details stay behind owner authentication, and release workflows remain anonymized unless explicitly approved by the owner.")
                 .font(.callout)
+            if let termsURL = mobilePod.termsURL {
+                Link("Terms and Conditions", destination: termsURL)
+                    .accessibilityIdentifier("PatientPrivacyTermsLink")
+            }
+            if let disclosureURL = mobilePod.dataDisclosureURL {
+                Link("Data / Information Disclosure", destination: disclosureURL)
+                    .accessibilityIdentifier("PatientPrivacyDisclosureLink")
+            }
         }
     }
 }
 
 private struct PatientDomainGraphView: View {
-    let domain: PatientMonitorDomain
+    let domainID: PatientMonitorDomain.ID
+    @ObservedObject var mobilePod: MobilePodModel
     @State private var selectedElementID: PatientSemanticElement.ID?
     @State private var addElement: PatientSemanticElement?
+
+    private var domain: PatientMonitorDomain {
+        mobilePod.patientMonitorDomains.first(where: { $0.id == domainID }) ?? PatientMonitorDomain(
+            id: domainID,
+            title: domainID,
+            fhirResourceType: "Domain",
+            sourceLabel: "OpenCommons",
+            itemCount: 0,
+            attentionRequired: false,
+            semanticElements: []
+        )
+    }
 
     private var selectedElement: PatientSemanticElement {
         if let selectedElementID,
@@ -212,7 +279,13 @@ private struct PatientDomainGraphView: View {
             itemCount: domain.itemCount,
             graphValue: 0.5,
             attentionRequired: domain.attentionRequired,
-            systemImage: "circle.grid.cross"
+            systemImage: "circle.grid.cross",
+            summary: "Domain summary.",
+            codingSystemName: nil,
+            codingSystemURL: nil,
+            codingCode: nil,
+            codingDisplay: nil,
+            defaultUnit: nil
         )
     }
 
@@ -255,8 +328,101 @@ private struct PatientDomainGraphView: View {
             selectedElementID = selectedElementID ?? domain.semanticElements.first?.id
         }
         .sheet(item: $addElement) { element in
-            SemanticElementEntryView(domain: domain, element: element)
+            SemanticElementEntryView(domain: domain, element: element, mobilePod: mobilePod)
         }
+    }
+}
+
+private struct WeekdaySelector: View {
+    @Binding var selectedWeekday: Int
+
+    private let days = Calendar.current.shortWeekdaySymbols.enumerated().map { index, symbol in
+        (weekday: index + 1, symbol: symbol)
+    }
+
+    var body: some View {
+        Picker("Day of week", selection: $selectedWeekday) {
+            ForEach(days, id: \.weekday) { day in
+                Text(day.symbol).tag(day.weekday)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("DailyTimelineWeekdaySelector")
+    }
+}
+
+private struct DailyTimelineView: View {
+    let activities: [DailyPlannedActivity]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                ZStack(alignment: .topLeading) {
+                    HStack(alignment: .top, spacing: 0) {
+                        ForEach(0..<24, id: \.self) { hour in
+                            VStack(spacing: 5) {
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.35))
+                                    .frame(width: 1, height: 24)
+                                Text(hourLabel(hour))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 42)
+                            }
+                            .frame(width: 46)
+                        }
+                    }
+                    .padding(.top, 28)
+
+                    ForEach(activities) { activity in
+                        ActivityMarker(activity: activity)
+                            .offset(x: offset(for: activity), y: 0)
+                    }
+                }
+                .frame(width: 46 * 24, height: 92)
+                .padding(.horizontal, 4)
+                .accessibilityIdentifier("DailyTimeline")
+            }
+
+            ForEach(activities) { activity in
+                Label("\(activity.timeLabel) · \(activity.title)", systemImage: activity.systemImage)
+                    .font(.caption)
+                    .foregroundStyle(activity.tint)
+                    .accessibilityIdentifier("DailyActivity-\(activity.id)")
+            }
+        }
+    }
+
+    private func offset(for activity: DailyPlannedActivity) -> CGFloat {
+        let hourWidth: CGFloat = 46
+        let minuteRatio = CGFloat(activity.minute) / 60
+        return (CGFloat(activity.hour) + minuteRatio) * hourWidth
+    }
+
+    private func hourLabel(_ hour: Int) -> String {
+        if hour == 0 { return "12a" }
+        if hour < 12 { return "\(hour)a" }
+        if hour == 12 { return "12p" }
+        return "\(hour - 12)p"
+    }
+}
+
+private struct ActivityMarker: View {
+    let activity: DailyPlannedActivity
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Image(systemName: activity.systemImage)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 26)
+                .background(activity.tint, in: Circle())
+            Rectangle()
+                .fill(activity.tint)
+                .frame(width: 2, height: 54)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(activity.title) starts at \(activity.timeLabel)")
     }
 }
 
@@ -399,7 +565,20 @@ private struct SemanticElementSummaryView: View {
 
             VStack(spacing: 10) {
                 summaryRow("Current", element.currentSummary)
+                summaryRow("Summary", element.summary)
                 summaryRow("FHIR element", element.fhirElement)
+                if let codingSystemName = element.codingSystemName,
+                   let codingSystemURL = element.codingSystemURL,
+                   let codingCode = element.codingCode {
+                    summaryRow("Coding", "\(codingSystemName) \(codingCode)")
+                    summaryRow("System URL", codingSystemURL)
+                }
+                if let codingDisplay = element.codingDisplay {
+                    summaryRow("Display", codingDisplay)
+                }
+                if let defaultUnit = element.defaultUnit {
+                    summaryRow("Unit", defaultUnit)
+                }
                 summaryRow("Source", element.sourceLabel)
                 summaryRow("Visible items", "\(element.itemCount)")
             }
@@ -436,6 +615,7 @@ private struct SemanticElementSummaryView: View {
 private struct SemanticElementEntryView: View {
     let domain: PatientMonitorDomain
     let element: PatientSemanticElement
+    @ObservedObject var mobilePod: MobilePodModel
     @Environment(\.dismiss) private var dismiss
     @State private var value = ""
     @State private var note = ""
@@ -447,6 +627,16 @@ private struct SemanticElementEntryView: View {
                     LabeledContent("Domain", value: domain.title)
                     LabeledContent("Element", value: element.title)
                     LabeledContent("FHIR element", value: element.fhirElement)
+                    if let codingSystemName = element.codingSystemName,
+                       let codingCode = element.codingCode {
+                        LabeledContent("Coding", value: "\(codingSystemName) \(codingCode)")
+                    }
+                    if let codingDisplay = element.codingDisplay {
+                        LabeledContent("Display", value: codingDisplay)
+                    }
+                    if let defaultUnit = element.defaultUnit {
+                        LabeledContent("Default unit", value: defaultUnit)
+                    }
                 }
                 Section("Entry") {
                     TextField("Value", text: $value)
@@ -454,10 +644,14 @@ private struct SemanticElementEntryView: View {
                         .lineLimit(3, reservesSpace: true)
                 }
                 Section {
-                    Button("Save draft") {
+                    Button("Stage for owner review") {
+                        mobilePod.stageSemanticDatum(domain: domain, element: element, value: value, note: note)
                         dismiss()
                     }
                     .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Text("This stages a durable owner-approved draft in the mobile mirror queue. It does not expose PHI in notifications or logs and does not claim Pod write-through until Solid resource CRUD is connected.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Add \(element.title)")

@@ -16,6 +16,8 @@ final class SeededFlowUITests: XCTestCase {
                       "Patient Monitor should be the landing tab")
         XCTAssertTrue(app.staticTexts["OpenCommons Health"].waitForExistence(timeout: 10),
                       "OpenCommons Health branding should be visible")
+        XCTAssertTrue(app.buttons["PatientOwnerMenu"].waitForExistence(timeout: 10),
+                      "Top-right owner menu should be visible and initially closed")
 
         // The three information sources the monitor surfaces.
         //
@@ -35,6 +37,11 @@ final class SeededFlowUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["SemanticSpiderGraph-vital-signs"].waitForExistence(timeout: 10),
                       "Vital signs should render the semantic spider graph")
 
+        for nodeID in ["blood-pressure", "heart-rate", "body-temperature", "oxygen-saturation", "body-weight", "bmi"] {
+            XCTAssertTrue(app.buttons["SemanticNode-\(nodeID)"].waitForExistence(timeout: 10),
+                          "Vital signs graph should expose PIM contract node \(nodeID)")
+        }
+
         let heartRateNode = app.buttons["SemanticNode-heart-rate"]
         XCTAssertTrue(heartRateNode.waitForExistence(timeout: 10),
                       "Heart rate node should be selectable")
@@ -45,8 +52,17 @@ final class SeededFlowUITests: XCTestCase {
         app.buttons["SemanticElementAddButton"].tap()
         XCTAssertTrue(app.navigationBars["Add Heart rate"].waitForExistence(timeout: 10),
                       "Add should open the data entry modal for the selected semantic element")
+        XCTAssertTrue(app.staticTexts["LOINC 8867-4"].waitForExistence(timeout: 10),
+                      "Add modal should expose the PIM/FHIR coding context")
         app.buttons["Cancel"].tap()
         app.navigationBars["Vital signs"].buttons.firstMatch.tap()
+
+        let dailyTimeline = app.descendants(matching: .any)["DailyTimeline"]
+        scrollUntilVisible(dailyTimeline, in: app)
+        XCTAssertTrue(dailyTimeline.waitForExistence(timeout: 10),
+                      "Patient monitor should expose the daily timeline")
+        XCTAssertTrue(app.descendants(matching: .any)["DailyActivity-morning-medications"].waitForExistence(timeout: 10),
+                      "Default daily plan should start with the morning medication regimen")
 
         app.tabBars.buttons["Bridge"].tap()
         XCTAssertTrue(app.navigationBars["HK Bridge"].waitForExistence(timeout: 20),
@@ -55,6 +71,12 @@ final class SeededFlowUITests: XCTestCase {
         app.tabBars.buttons["Pod"].tap()
         XCTAssertTrue(app.navigationBars["Pod"].waitForExistence(timeout: 20),
                       "Pod tab should still reach the existing pod screen")
+        let podTermsLink = app.descendants(matching: .any)["PodTermsLink"]
+        scrollUntilVisible(podTermsLink, in: app)
+        XCTAssertTrue(podTermsLink.waitForExistence(timeout: 10),
+                      "Pod screen should expose Terms")
+        XCTAssertTrue(app.descendants(matching: .any)["PodDataDisclosureLink"].waitForExistence(timeout: 10),
+                      "Pod screen should expose Data Disclosure")
 
         // Returning proves the Patient tab did not replace the other screens.
         app.tabBars.buttons["Patient"].tap()
@@ -104,5 +126,11 @@ final class SeededFlowUITests: XCTestCase {
         }
         XCTAssertTrue(row.waitForExistence(timeout: 10), "Patient domain \(id) should be reachable")
         row.tap()
+    }
+
+    private func scrollUntilVisible(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 6) {
+        for _ in 0..<maxSwipes where !element.exists {
+            app.swipeUp()
+        }
     }
 }
