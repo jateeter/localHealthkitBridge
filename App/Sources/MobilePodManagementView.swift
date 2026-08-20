@@ -10,6 +10,7 @@ struct MobilePodManagementView: View {
             ownerStatusSection
             managedDomainsSection
             containersSection
+            legalSection
             privacySection
         }
         .navigationTitle("Pod")
@@ -32,14 +33,21 @@ struct MobilePodManagementView: View {
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+            TextField("Local PIM base URL", text: $model.localPIMBaseURL)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
             Toggle("Allow insecure local HTTP", isOn: $model.allowInsecureLocalHTTP)
             Button("Save Pod settings") {
                 model.saveConfiguration()
             }
+            Button("Refresh local PIM/CSS status") {
+                Task { await model.refreshLocalPIMStatus() }
+            }
         } header: {
             Text("Solid Pod connection")
         } footer: {
-            Text("Use localhost/docker CSS settings for MVP review. HTTPS remains required before non-local PHI mirroring.")
+            Text("Use localhost/docker CSS settings for MVP review. For physical iPhone testing, set the Local PIM base URL to the notebook LAN address. HTTPS remains required before non-local PHI mirroring.")
         }
     }
 
@@ -113,6 +121,27 @@ struct MobilePodManagementView: View {
             }
         } header: {
             Text("HealthKit Pod containers")
+        }
+    }
+
+    private var legalSection: some View {
+        Section {
+            if let termsURL = model.termsURL {
+                Link(destination: termsURL) {
+                    Label("Terms and Conditions", systemImage: "doc.text")
+                }
+                .accessibilityIdentifier("PodTermsLink")
+            }
+            if let disclosureURL = model.dataDisclosureURL {
+                Link(destination: disclosureURL) {
+                    Label("Data / Information Disclosure", systemImage: "hand.raised")
+                }
+                .accessibilityIdentifier("PodDataDisclosureLink")
+            }
+        } header: {
+            Text("Legal and disclosure")
+        } footer: {
+            Text("Documents are loaded from the configured local PIM stack when reachable, keeping mobile and browser review surfaces aligned.")
         }
     }
 
