@@ -292,17 +292,6 @@ private struct PatientMonitorView: View {
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
-
-    private func icon(for domainID: String) -> String {
-        switch domainID {
-        case "profiles": return "person.crop.circle"
-        case "providers": return "cross.case"
-        case "insurance-policies": return "shield.lefthalf.filled"
-        case "documents": return "doc.text"
-        case "workflow-tasks": return "checklist"
-        default: return "circle.grid.cross"
-        }
-    }
 }
 
 private struct WellnessOverviewSpiderGraphView: View {
