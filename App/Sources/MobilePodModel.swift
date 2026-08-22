@@ -96,6 +96,8 @@ final class MobilePodModel: ObservableObject {
     @Published private(set) var stagedData: [StagedPatientDatum]
 
     let managedDomains = OpenCommonsHealthPodProfile.managedDomains
+    let wellnessAxisDomainIDs = ["vital-signs", "lab-results", "medications", "conditions", "allergies", "immunizations"]
+    let wellnessBrowseDomainIDs = ["profiles", "providers", "insurance-policies", "documents", "workflow-tasks"]
 
     private let defaults = UserDefaults.standard
 
@@ -204,6 +206,14 @@ final class MobilePodModel: ObservableObject {
         }
     }
 
+    var wellnessAxisDomains: [PatientMonitorDomain] {
+        domains(matching: wellnessAxisDomainIDs)
+    }
+
+    var wellnessBrowseDomains: [PatientMonitorDomain] {
+        domains(matching: wellnessBrowseDomainIDs)
+    }
+
     var patientMonitorSummary: String {
         let visibleDomains = patientMonitorDomains.count
         let pending = containers.filter { $0.mirrorState == .pendingMirror }.count
@@ -218,6 +228,11 @@ final class MobilePodModel: ObservableObject {
             return "\(visibleDomains) domains visible · \(stagedData.count) owner-approved draft\(stagedData.count == 1 ? "" : "s") staged"
         }
         return "\(visibleDomains) domains visible · owner-controlled Pod monitor"
+    }
+
+    private func domains(matching ids: [String]) -> [PatientMonitorDomain] {
+        let byID = Dictionary(uniqueKeysWithValues: patientMonitorDomains.map { ($0.id, $0) })
+        return ids.compactMap { byID[$0] }
     }
 
     func saveConfiguration() {

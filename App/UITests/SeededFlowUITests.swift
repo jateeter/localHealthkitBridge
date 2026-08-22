@@ -12,10 +12,12 @@ final class SeededFlowUITests: XCTestCase {
         // Cold hosted runners are slower to first render than a warm local
         // simulator, so the first wait is generous. Later waits can be short
         // because the app is already up by then.
-        XCTAssertTrue(app.navigationBars["Patient Monitor"].waitForExistence(timeout: 90),
-                      "Patient Monitor should be the landing tab")
+        XCTAssertTrue(app.navigationBars["Wellness"].waitForExistence(timeout: 90),
+                      "Wellness should be the landing tab")
         XCTAssertTrue(app.staticTexts["OpenCommons Health"].waitForExistence(timeout: 10),
                       "OpenCommons Health branding should be visible")
+        XCTAssertTrue(app.descendants(matching: .any)["WellnessSpiderGraph"].waitForExistence(timeout: 10),
+                      "Wellness landing should expose the same spider graph entry point as the PIM")
         XCTAssertTrue(app.buttons["PatientOwnerMenu"].waitForExistence(timeout: 10),
                       "Top-right owner menu should be visible and initially closed")
 
@@ -27,9 +29,13 @@ final class SeededFlowUITests: XCTestCase {
         // view, so they assert screen height rather than behavior. They failed
         // on a hosted runner while the source rows either side of them passed.
         for source in ["HealthKit", "Epic", "Solid Pod"] {
-            XCTAssertTrue(app.staticTexts[source].waitForExistence(timeout: 10),
+            let sourceLabel = app.staticTexts[source]
+            scrollUntilVisible(sourceLabel, in: app)
+            XCTAssertTrue(sourceLabel.waitForExistence(timeout: 10),
                           "\(source) should be listed as an information source")
         }
+
+        app.swipeDown()
 
         tapPatientDomain("vital-signs", in: app)
         XCTAssertTrue(app.navigationBars["Vital signs"].waitForExistence(timeout: 20),
@@ -75,13 +81,15 @@ final class SeededFlowUITests: XCTestCase {
         scrollUntilVisible(podTermsLink, in: app)
         XCTAssertTrue(podTermsLink.waitForExistence(timeout: 10),
                       "Pod screen should expose Terms")
-        XCTAssertTrue(app.descendants(matching: .any)["PodDataDisclosureLink"].waitForExistence(timeout: 10),
+        let podDisclosureLink = app.descendants(matching: .any)["PodDataDisclosureLink"]
+        scrollUntilVisible(podDisclosureLink, in: app)
+        XCTAssertTrue(podDisclosureLink.waitForExistence(timeout: 10),
                       "Pod screen should expose Data Disclosure")
 
-        // Returning proves the Patient tab did not replace the other screens.
-        app.tabBars.buttons["Patient"].tap()
-        XCTAssertTrue(app.navigationBars["Patient Monitor"].waitForExistence(timeout: 20),
-                      "Patient tab should remain reachable after visiting Bridge and Pod")
+        // Returning proves the Wellness tab did not replace the other screens.
+        app.tabBars.buttons["Wellness"].tap()
+        XCTAssertTrue(app.navigationBars["Wellness"].waitForExistence(timeout: 20),
+                      "Wellness tab should remain reachable after visiting Bridge and Pod")
     }
 
     func testSeededDeliveryReachesPE() throws {
