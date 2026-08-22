@@ -10,7 +10,7 @@ struct ContentView: View {
         TabView {
             PatientMonitorView(mobilePod: mobilePod)
                 .tabItem {
-                    Label("Patient", systemImage: "heart.text.square")
+                    Label("Wellness", systemImage: "chart.line.uptrend.xyaxis")
                 }
 
             BridgeOperationsView(mobilePod: mobilePod)
@@ -36,23 +36,39 @@ private struct PatientMonitorView: View {
     @EnvironmentObject private var bridge: BridgeModel
     @ObservedObject var mobilePod: MobilePodModel
     @State private var selectedWeekday = Calendar.current.component(.weekday, from: Date())
+    @State private var navigationPath: [String] = []
 
     var body: some View {
-        NavigationStack {
-            List {
-                brandingSection
-                sourceSection
-                managedInformationSection
-                actionSection
-                dailyTimelineSection
-                privacySection
+        NavigationStack(path: $navigationPath) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    wellnessHeroSection
+                    wellnessGraphSection
+                    sourceSection
+                    actionSection
+                    dailyTimelineSection
+                    privacySection
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .padding(.bottom, 88)
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Patient Monitor")
-            .accessibilityIdentifier("PatientMonitorView")
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Wellness")
+            .accessibilityIdentifier("WellnessLandingView")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     ownerUtilityMenu
+                }
+            }
+            .navigationDestination(for: String.self) { domainID in
+                switch domainID {
+                case "bridge-controls":
+                    BridgeOperationsView(mobilePod: mobilePod)
+                case "pod-management":
+                    MobilePodManagementView(model: mobilePod)
+                default:
+                    PatientDomainGraphView(domainID: domainID, mobilePod: mobilePod)
                 }
             }
             .refreshable {
@@ -65,22 +81,41 @@ private struct PatientMonitorView: View {
 
     private var ownerUtilityMenu: some View {
         Menu {
+            Section("Browse records") {
+                ForEach(mobilePod.wellnessBrowseDomains) { domain in
+                    Button {
+                        navigationPath.append(domain.id)
+                    } label: {
+                        Label(domain.title, systemImage: icon(for: domain.id))
+                    }
+                    .accessibilityIdentifier("UtilityDomain-\(domain.id)")
+                }
+            }
+            Section("Owner actions") {
+                Button {
+                    Task { await mobilePod.refreshLocalPIMStatus() }
+                } label: {
+                    Label("Refresh PIM Pod status", systemImage: "arrow.clockwise")
+                }
+            }
             Button {
-                Task { await mobilePod.refreshLocalPIMStatus() }
+                navigationPath.append("pod-management")
             } label: {
-                Label("Refresh PIM Pod status", systemImage: "arrow.clockwise")
+                Label("Solid Pod management", systemImage: "lock.shield")
             }
-            if let termsURL = mobilePod.termsURL {
-                Link(destination: termsURL) {
-                    Label("Terms", systemImage: "doc.text")
+            Section("Legal") {
+                if let termsURL = mobilePod.termsURL {
+                    Link(destination: termsURL) {
+                        Label("Terms", systemImage: "doc.text")
+                    }
+                    .accessibilityIdentifier("PatientTermsLink")
                 }
-                .accessibilityIdentifier("PatientTermsLink")
-            }
-            if let disclosureURL = mobilePod.dataDisclosureURL {
-                Link(destination: disclosureURL) {
-                    Label("Data disclosure", systemImage: "hand.raised")
+                if let disclosureURL = mobilePod.dataDisclosureURL {
+                    Link(destination: disclosureURL) {
+                        Label("Data disclosure", systemImage: "hand.raised")
+                    }
+                    .accessibilityIdentifier("PatientDataDisclosureLink")
                 }
-                .accessibilityIdentifier("PatientDataDisclosureLink")
             }
         } label: {
             Image(systemName: "line.3.horizontal")
@@ -89,46 +124,81 @@ private struct PatientMonitorView: View {
         .accessibilityIdentifier("PatientOwnerMenu")
     }
 
-    private var brandingSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .center, spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [.green.opacity(0.95), .blue.opacity(0.9)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
+    private var wellnessHeroSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [.green.opacity(0.95), .blue.opacity(0.9)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
                             )
-                            .frame(width: 62, height: 62)
-                        Image(systemName: "heart.text.square.fill")
-                            .font(.system(size: 31, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("OpenCommons Health")
-                            .font(.title3.weight(.semibold))
-                        Text("Monitor and manage your owner-controlled personal health information.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
+                        )
+                        .frame(width: 62, height: 62)
+                    Image(systemName: "heart.text.square.fill")
+                        .font(.system(size: 31, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
-
-                Text(mobilePod.patientMonitorSummary)
-                    .font(.callout.weight(.medium))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.thinMaterial, in: Capsule())
-                    .accessibilityIdentifier("PatientMonitorSummary")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("OpenCommons Health")
+                        .font(.title3.weight(.semibold))
+                    Text("Owner-controlled personal health information, organized by the same Wellness view as the local PIM.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .padding(.vertical, 6)
+
+            Text(mobilePod.patientMonitorSummary)
+                .font(.callout.weight(.medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.thinMaterial, in: Capsule())
+                .accessibilityIdentifier("PatientMonitorSummary")
         }
+        .padding(18)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+
+    private var wellnessGraphSection: some View {
+        VStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Wellness view")
+                    .font(.headline)
+                Text("Tap a spider-graph node or domain button to monitor and manage that owner-held record domain.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            WellnessOverviewSpiderGraphView(
+                domains: mobilePod.wellnessAxisDomains,
+                openDomain: { navigationPath.append($0.id) }
+            )
+            .frame(height: 310)
+            .accessibilityIdentifier("WellnessSpiderGraph")
+
+            WellnessAxisButtonGrid(
+                domains: mobilePod.wellnessAxisDomains,
+                openDomain: { navigationPath.append($0.id) }
+            )
+            .frame(maxWidth: .infinity, alignment: .center)
+
+            Text("Profiles, Providers, Insurance, Documents, Workflow Tasks, Terms, and Disclosure are available from the owner menu.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+        }
+        .padding(18)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 
     private var sourceSection: some View {
-        Section("Information sources") {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Information sources")
+                .font(.headline)
             ForEach(mobilePod.patientMonitorSources) { source in
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: source.systemImage)
@@ -155,41 +225,14 @@ private struct PatientMonitorView: View {
                 .accessibilityIdentifier("PatientSource-\(source.title)")
             }
         }
-    }
-
-    private var managedInformationSection: some View {
-        Section {
-            ForEach(mobilePod.patientMonitorDomains) { domain in
-                NavigationLink {
-                    PatientDomainGraphView(domainID: domain.id, mobilePod: mobilePod)
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: domain.attentionRequired ? "exclamationmark.triangle.fill" : "checkmark.seal")
-                            .foregroundStyle(domain.attentionRequired ? .orange : .green)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(domain.title)
-                            Text("\(domain.sourceLabel) · FHIR \(domain.fhirResourceType)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text("\(domain.itemCount)")
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityIdentifier("PatientDomain-\(domain.id)")
-            }
-        } header: {
-            Text("Pod-maintained information")
-        } footer: {
-            Text("Counts are metadata summaries for owner review. Raw PHI remains inside authenticated owner-controlled flows.")
-        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private var actionSection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Monitor actions")
+                .font(.headline)
             LabeledContent("Notifications", value: bridge.notificationAuthorizationLabel)
             Button("Enable Patient Monitor notifications") {
                 Task { await bridge.requestPatientMonitorNotifications() }
@@ -201,37 +244,40 @@ private struct PatientMonitorView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            NavigationLink {
-                BridgeOperationsView(mobilePod: mobilePod)
-            } label: {
+            NavigationLink(value: "bridge-controls") {
                 Label("Open HealthKit Bridge controls", systemImage: "arrow.triangle.2.circlepath")
             }
 
-            NavigationLink {
-                MobilePodManagementView(model: mobilePod)
-            } label: {
+            NavigationLink(value: "pod-management") {
                 Label("Open Solid Pod management", systemImage: "lock.shield")
             }
-        } header: {
-            Text("Monitor actions")
-        } footer: {
+
             Text("Notifications are intentionally PHI-safe: they signal that review is available without placing medical details on the lock screen.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private var dailyTimelineSection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Daily plan")
+                .font(.headline)
             WeekdaySelector(selectedWeekday: $selectedWeekday)
             DailyTimelineView(activities: mobilePod.plannedActivities(for: selectedWeekday))
-        } header: {
-            Text("Daily plan")
-        } footer: {
             Text("Default schedule markers are owner-visible planning metadata. The first activity is the morning medication regimen.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private var privacySection: some View {
-        Section("Owner privacy boundary") {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Owner privacy boundary")
+                .font(.headline)
             Text("Epic, HealthKit, and Solid Pod information is presented here as operational status and metadata only. Identifiable details stay behind owner authentication, and release workflows remain anonymized unless explicitly approved by the owner.")
                 .font(.callout)
             if let termsURL = mobilePod.termsURL {
@@ -243,6 +289,196 @@ private struct PatientMonitorView: View {
                     .accessibilityIdentifier("PatientPrivacyDisclosureLink")
             }
         }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func icon(for domainID: String) -> String {
+        switch domainID {
+        case "profiles": return "person.crop.circle"
+        case "providers": return "cross.case"
+        case "insurance-policies": return "shield.lefthalf.filled"
+        case "documents": return "doc.text"
+        case "workflow-tasks": return "checklist"
+        default: return "circle.grid.cross"
+        }
+    }
+}
+
+private struct WellnessOverviewSpiderGraphView: View {
+    let domains: [PatientMonitorDomain]
+    let openDomain: (PatientMonitorDomain) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Canvas { context, size in
+                    drawGraph(context: context, size: size)
+                }
+                .accessibilityElement()
+                .accessibilityLabel("Wellness spider graph across \(domains.count) health domains")
+
+                ForEach(Array(domains.enumerated()), id: \.element.id) { index, domain in
+                    WellnessDomainNode(domain: domain, action: { openDomain(domain) })
+                        .position(nodePosition(in: proxy.size, index: index, count: domains.count))
+                }
+            }
+        }
+    }
+
+    private func drawGraph(context: GraphicsContext, size: CGSize) {
+        guard domains.count > 2 else { return }
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let radius = min(size.width, size.height) * 0.33
+
+        for ring in 1...4 {
+            var path = Path()
+            let ringRadius = radius * CGFloat(ring) / 4
+            for index in domains.indices {
+                let point = graphPoint(center: center, radius: ringRadius, index: index, count: domains.count)
+                if index == 0 {
+                    path.move(to: point)
+                } else {
+                    path.addLine(to: point)
+                }
+            }
+            path.closeSubpath()
+            context.stroke(path, with: .color(.secondary.opacity(0.22)), lineWidth: 1)
+        }
+
+        for (index, domain) in domains.enumerated() {
+            let color = color(for: domain.id)
+            var axis = Path()
+            axis.move(to: center)
+            axis.addLine(to: graphPoint(center: center, radius: radius, index: index, count: domains.count))
+            context.stroke(axis, with: .color(color.opacity(0.5)), lineWidth: 2)
+        }
+
+        var valuePath = Path()
+        for (index, domain) in domains.enumerated() {
+            let point = graphPoint(center: center, radius: radius * CGFloat(score(for: domain)), index: index, count: domains.count)
+            if index == 0 {
+                valuePath.move(to: point)
+            } else {
+                valuePath.addLine(to: point)
+            }
+        }
+        valuePath.closeSubpath()
+        context.fill(valuePath, with: .color(.teal.opacity(0.18)))
+        context.stroke(valuePath, with: .color(.teal.opacity(0.72)), lineWidth: 2)
+    }
+
+    private func nodePosition(in size: CGSize, index: Int, count: Int) -> CGPoint {
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let radius = min(size.width, size.height) * 0.43
+        return graphPoint(center: center, radius: radius, index: index, count: count)
+    }
+
+    private func graphPoint(center: CGPoint, radius: CGFloat, index: Int, count: Int) -> CGPoint {
+        let angle = (Double(index) / Double(count) * 2 * Double.pi) - (Double.pi / 2)
+        return CGPoint(
+            x: center.x + (Darwin.cos(angle) * radius),
+            y: center.y + (Darwin.sin(angle) * radius)
+        )
+    }
+}
+
+private struct WellnessDomainNode: View {
+    let domain: PatientMonitorDomain
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                ZStack {
+                    Circle()
+                        .stroke(color(for: domain.id).opacity(0.55), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                        .frame(width: 58, height: 58)
+                    Image(systemName: icon(for: domain.id))
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(color(for: domain.id), in: Circle())
+                }
+                Text(domain.title)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(color(for: domain.id))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 96)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(domain.title), \(domain.itemCount) visible records. Open \(domain.title) records.")
+        .accessibilityIdentifier("WellnessDomain-\(domain.id)")
+    }
+}
+
+private struct WellnessAxisButtonGrid: View {
+    let domains: [PatientMonitorDomain]
+    let openDomain: (PatientMonitorDomain) -> Void
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 8, alignment: .center),
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .center, spacing: 8) {
+            ForEach(domains) { domain in
+                Button {
+                    openDomain(domain)
+                } label: {
+                    Label(domain.title, systemImage: icon(for: domain.id))
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(color(for: domain.id))
+                .accessibilityIdentifier("PatientDomain-\(domain.id)")
+            }
+        }
+        .frame(maxWidth: 500)
+    }
+}
+
+private func score(for domain: PatientMonitorDomain) -> Double {
+    if domain.attentionRequired { return 0.95 }
+    if domain.itemCount > 0 { return min(0.95, 0.45 + (Double(domain.itemCount) * 0.12)) }
+    return 0.28
+}
+
+private func color(for domainID: String) -> Color {
+    switch domainID {
+    case "vital-signs": return .teal
+    case "lab-results": return .blue
+    case "medications": return .purple
+    case "conditions": return .pink
+    case "allergies": return .orange
+    case "immunizations": return .green
+    case "profiles": return .mint
+    case "providers": return .cyan
+    case "insurance-policies": return .brown
+    case "documents": return .indigo
+    case "workflow-tasks": return .yellow
+    default: return .teal
+    }
+}
+
+private func icon(for domainID: String) -> String {
+    switch domainID {
+    case "vital-signs": return "heart.text.square"
+    case "lab-results": return "testtube.2"
+    case "medications": return "pills"
+    case "conditions": return "stethoscope"
+    case "allergies": return "allergens"
+    case "immunizations": return "syringe"
+    case "profiles": return "person.crop.circle"
+    case "providers": return "cross.case"
+    case "insurance-policies": return "shield.lefthalf.filled"
+    case "documents": return "doc.text"
+    case "workflow-tasks": return "checklist"
+    default: return "circle.grid.cross"
     }
 }
 
