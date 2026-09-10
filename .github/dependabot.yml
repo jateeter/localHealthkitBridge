@@ -1,0 +1,42 @@
+version: 2
+
+# Dependency currency for the HealthKit bridge.
+#
+# House policy across this workspace: weekly, and **majors are proposed too** —
+# Dependabot opens the PR, a human still merges it. Read them carefully here:
+# this package speaks the ingest contract in
+# docs/INGEST_CONTRACT.md, which four Perception Engine runtimes implement and
+# RealityEngine_Machines/tests/integration/healthkit-ingest-contract.spec.ts
+# enforces. A transitive major that shifts serialization is a contract change
+# that this repo's own tests would not necessarily catch.
+
+updates:
+
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+
+  # Mobile-Solid compatibility experiment — tracked so it does not rot, with a
+  # tighter PR budget since it is not on the MVP path.
+  - package-ecosystem: swift
+    directory: /Experiments/MobileSolidCompat
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 3
