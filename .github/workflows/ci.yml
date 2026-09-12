@@ -10,7 +10,7 @@ jobs:
     name: swift build + test (macOS)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Swift version
         run: swift --version
       - name: Build
@@ -25,7 +25,7 @@ jobs:
     name: app build + Patient navigation UI test
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install XcodeGen
         run: brew install xcodegen
