@@ -38,3 +38,19 @@ DEVELOPMENT_TEAM=... [PE_BASE_URL=http://<lan-ip>:...] ./scripts/e2e_device.sh  
 - Auth: body `bridgeToken` (alias `token`) OR `Authorization: Bearer` — either channel must match `HEALTHKIT_BRIDGE_TOKEN` when configured. The iOS bridge sends Bearer by default.
 - Samples carry pre-normalized 4-element `values`; scalar `value` is a legacy fallback normalized server-side.
 - Prefer the runtime registry (`re-registry.json`, `instances[].pe_url`) over static ports. All PEs default to a 7680-dimension vector (`VECTOR_DIMENSION`); the Manager TS PE also grows on demand, so the canonical health regions [4320:4344] fit out of the box.
+
+## Standing rules — authoritative in `../RealityEngine_CI/docs/ENGINEERING_CONTRACT.md`
+
+These apply here and are **not** restated in this file. They were previously
+copied into eighteen `claude.md` files across six repositories, which is the
+duplication problem the rules themselves warn about: copies drift, a rule added
+to one applies only where someone looked, and with no authority a reader cannot
+tell which copy is current.
+
+| Rule | In short |
+| --- | --- |
+| Qualify every "registry" | Never the bare word — instance / machine / cesgen / arbitration / domain / semantic-bus / tag. |
+| Verify a merge beyond the hosted checks | A green PR is not a verified PR; the hosted path cannot reach the integration points. Name what you could not exercise, and record what you noticed but did not chase. |
+| Never commit to main | Branch from `origin/main`, PR, verify, squash-merge, clean up. |
+
+Read the contract for the full text, the qualifier table, and the cleanup steps.
