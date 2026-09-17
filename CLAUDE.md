@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-07-13
 
-See `/Users/johnt/workspace/GitHub/claude.md` for the integrated application map. Update both this file and the root map when the ingest contract, package layout, or PE integration responsibilities change.
+See `/Users/johnt/workspace/GitHub/CLAUDE.md` for the integrated application map. Update both this file and the root map when the ingest contract, package layout, or PE integration responsibilities change.
 
 ## Role
 
@@ -42,7 +42,7 @@ DEVELOPMENT_TEAM=... [PE_BASE_URL=http://<lan-ip>:...] ./scripts/e2e_device.sh  
 ## Standing rules — authoritative in `../RealityEngine_CI/docs/ENGINEERING_CONTRACT.md`
 
 These apply here and are **not** restated in this file. They were previously
-copied into eighteen `claude.md` files across six repositories, which is the
+copied into eighteen `CLAUDE.md` files across six repositories, which is the
 duplication problem the rules themselves warn about: copies drift, a rule added
 to one applies only where someone looked, and with no authority a reader cannot
 tell which copy is current.

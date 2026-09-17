@@ -1,6 +1,6 @@
 # Codex Guidance: localHealthkitBridge
 
-Read `claude.md` for the current codebase map and ingest-contract context.
+Read `CLAUDE.md` for the current codebase map and ingest-contract context.
 
 ## Role
 
