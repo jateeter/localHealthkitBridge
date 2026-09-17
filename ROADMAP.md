@@ -1,6 +1,6 @@
 # localHealthkitBridge — Roadmap to MVP (v0.1.0)
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-09-17
 
 ## Where the project stands
 
@@ -219,8 +219,40 @@ token / stop the PE). The `devicectl` launch also requires the iPhone to be
 **unlocked** — a locked screen fails with `FBSOpenApplicationErrorDomain`
 error 7 ("device was not, or could not be, unlocked").
 
-### M6 — Release hygiene (1–2 days)
+### M6 — Release hygiene (1–2 days) — the only open milestone
+
 - README truth pass against shipped behavior; tag `v0.1.0`; optional TestFlight.
+
+Checked 2026-09-17, and both halves are genuinely outstanding:
+
+| | |
+|---|---|
+| Tags present | `v0.0.1-baseline` only — **`v0.1.0` is not tagged** |
+| README last changed | **not since 2026-08-09** — no truth pass has happened |
+
+M5's device leg also still carries its manual remainder (HealthKit authorization
+and observers, backgrounded/killed wake, TTL re-arm, the silent-failure
+watchdog). Those need a physical operator at an unlocked device and cannot be
+closed from here.
+
+### Delivered after M7, not previously recorded here — 2026-08-15 → 08-22
+
+This roadmap said "Last reviewed: 2026-08-09" for five weeks while the app kept
+moving. Recorded now rather than left as a silent gap between the file and the
+log, because a roadmap that stops tracking delivery is how M6 comes to look
+larger or smaller than it is:
+
+| Landed | |
+|---|---|
+| #11 | semantic spider-graph domain views |
+| #18 | lane semantics and an ingest schema (closes #9) |
+| #19 | mobile PIM UX parity |
+| #20 | Patient tab as a Wellness view carrying the PIM's spider graph |
+| #22 | removed the shadowing domain-icon mapping in `ContentView` |
+
+None of it changes a milestone's status — M7 was already ✅ and M6 was already
+the remainder — but the Patient tab M7 describes is not the Patient tab that
+ships today, and a README truth pass (M6) has to cover the difference.
 
 ### M7 — Patient Monitor / Manage iPhone UX ✅ 2026-07-28
 
