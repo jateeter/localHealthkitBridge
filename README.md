@@ -370,6 +370,15 @@ The HealthKit background-delivery portion remains a manual checklist because it
 requires owner permission prompts and real or manually entered Health samples on
 the device.
 
+The device app also exposes an **Apple Health metrics** section in HK Bridge
+controls. After read authorization, **Refresh Apple Health** queries the latest
+blood-pressure summary, today's activity totals, and sleep from the last 24
+hours. Each card labels its HealthKit source and measurement time. Observer
+preference survives app relaunch and automatically refreshes these summaries;
+query failures and missing readable families appear in the UI instead of being
+discarded. Synthetic **Send test batch** values remain transport diagnostics and
+are explicitly excluded from the Apple Health cards.
+
 Per-runtime bridge setup guides with example configs and e2e verification:
 
 - CPP → [`RealityEngine_CPP/docs/HEALTHKIT_SPEZI_BRIDGE.md`](https://github.com/jateeter/RealityEngine_CPP/blob/main/docs/HEALTHKIT_SPEZI_BRIDGE.md)

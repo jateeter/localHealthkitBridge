@@ -18,6 +18,12 @@ final class BridgeModel: ObservableObject {
     @Published private(set) var statusError: String?
     @Published private(set) var authorized = false
     @Published private(set) var observing = false
+    @Published private(set) var healthMetrics: [HealthMetricSnapshot] = []
+    @Published private(set) var healthMetricMissingFamilies: [HealthMetricSnapshot.Family] = []
+    @Published private(set) var healthMetricError: String?
+    @Published private(set) var healthMetricsRefreshedAt: Date?
+    @Published private(set) var refreshingHealthMetrics = false
+    @Published private(set) var lastTestBatchAt: Date?
     @Published private(set) var notificationAuthorizationLabel = "Not checked"
     @Published private(set) var lastNotificationMessage = "No patient-monitor notification sent."
 
@@ -78,9 +84,14 @@ final class BridgeModel: ObservableObject {
         // The manager forwards each de-anchored, normalized batch to the PE.
         manager?.stopObservers()
         observing = false
-        manager = HealthKitManager(onBatch: { samples in
-            Task { await coordinator.deliver(samples) }
-        })
+        manager = HealthKitManager(
+            onBatch: { samples in
+                Task { await coordinator.deliver(samples) }
+            },
+            onEvent: { [weak self] event in
+                Task { @MainActor in self?.handleHealthKitEvent(event) }
+            }
+        )
         print("HealthKitBridge configured peBaseURL=\(url.absoluteString) bridgeId=\(bridgeId) tokenConfigured=\(!bridgeToken.isEmpty)")
         if enteredBaseURL != peBaseURL {
             appendLocal(.info, "Normalized PE base URL to \(peBaseURL)")
@@ -96,7 +107,9 @@ final class BridgeModel: ObservableObject {
         do {
             try await manager?.requestAuthorization()
             authorized = true
+            defaults.set(true, forKey: "healthKitAuthorizationRequested")
             appendLocal(.info, "HealthKit read authorization granted")
+            await refreshHealthMetrics()
         } catch {
             appendLocal(.failed, "Authorization failed: \(error.localizedDescription)")
         }
@@ -107,11 +120,15 @@ final class BridgeModel: ObservableObject {
         if observing {
             manager.stopObservers()
             observing = false
+            defaults.set(false, forKey: "healthKitObserversEnabled")
+            defaults.set(true, forKey: "healthKitObserversPreferenceSet")
             appendLocal(.info, "Observers stopped")
             Task { await coordinator?.stopSilenceWatchdog() }
         } else {
             manager.startObservers()
             observing = true
+            defaults.set(true, forKey: "healthKitObserversEnabled")
+            defaults.set(true, forKey: "healthKitObserversPreferenceSet")
             appendLocal(.info, "Anchored observers started (background delivery armed)")
             let minutes = UserDefaults.standard.double(forKey: "silenceThresholdMinutes")
             let threshold = (minutes > 0 ? minutes : 30) * 60
@@ -129,6 +146,49 @@ final class BridgeModel: ObservableObject {
         ]
         print("HealthKitBridge test batch requested sampleCount=\(samples.count) peBaseURL=\(peBaseURL)")
         await coordinator?.deliver(samples)
+        lastTestBatchAt = Date()
+        appendLocal(.info, "Connectivity test sent; test values are not shown as Apple Health metrics")
+    }
+
+    /// Rehydrates the user's observer preference after app relaunch. HealthKit
+    /// intentionally does not reveal read-denial state, so the UI reports that
+    /// authorization was requested and lets empty/error query results explain
+    /// what is actually readable.
+    func restoreHealthKitRuntimeState() async {
+        do {
+            let requestIsNecessary = try await manager?.authorizationRequestIsNecessary() ?? true
+            authorized = !requestIsNecessary || defaults.bool(forKey: "healthKitAuthorizationRequested")
+            if authorized { defaults.set(true, forKey: "healthKitAuthorizationRequested") }
+        } catch {
+            healthMetricError = "Unable to check Apple Health authorization: \(error.localizedDescription)"
+            appendLocal(.failed, healthMetricError ?? "Unable to check Apple Health authorization")
+            return
+        }
+        guard authorized else { return }
+        let preferenceWasSet = defaults.bool(forKey: "healthKitObserversPreferenceSet")
+        let shouldObserve = preferenceWasSet ? defaults.bool(forKey: "healthKitObserversEnabled") : true
+        if shouldObserve, !observing {
+            manager?.startObservers()
+            observing = true
+            defaults.set(true, forKey: "healthKitObserversEnabled")
+            defaults.set(true, forKey: "healthKitObserversPreferenceSet")
+            appendLocal(.info, "Restored anchored observers after app launch")
+            let minutes = defaults.double(forKey: "silenceThresholdMinutes")
+            let threshold = (minutes > 0 ? minutes : 30) * 60
+            Task { await coordinator?.startSilenceWatchdog(threshold: threshold) }
+        }
+        await refreshHealthMetrics()
+    }
+
+    func refreshHealthMetrics() async {
+        guard authorized else {
+            healthMetricError = "Authorize Apple Health before refreshing metrics."
+            return
+        }
+        refreshingHealthMetrics = true
+        healthMetricError = nil
+        await manager?.refreshSnapshot()
+        refreshingHealthMetrics = false
     }
 
 #if DEBUG
@@ -210,6 +270,29 @@ final class BridgeModel: ObservableObject {
 
     private func appendLocal(_ kind: SyncEvent.Kind, _ message: String) {
         log.insert(SyncEvent(kind: kind, message: message), at: 0)
+    }
+
+    private func handleHealthKitEvent(_ event: HealthKitRuntimeEvent) {
+        switch event {
+        case let .snapshot(snapshots, refreshedAt, missing):
+            print("HealthKitBridge snapshot refreshed count=\(snapshots.count) missing=\(missing.count)")
+            var byFamily = Dictionary(uniqueKeysWithValues: healthMetrics.map { ($0.family, $0) })
+            for snapshot in snapshots { byFamily[snapshot.family] = snapshot }
+            healthMetrics = HealthMetricSnapshot.Family.allCases.compactMap { byFamily[$0] }
+            healthMetricMissingFamilies = missing
+            healthMetricsRefreshedAt = refreshedAt
+            healthMetricError = snapshots.isEmpty
+                ? "No readable Apple Health samples were found. Confirm each Health permission and add or refresh a recent sample."
+                : nil
+            let missingNames = missing.map(\.title).joined(separator: ", ")
+            appendLocal(.info, missingNames.isEmpty
+                ? "Apple Health snapshot refreshed"
+                : "Apple Health snapshot refreshed; unavailable: \(missingNames)")
+        case let .queryFailed(typeIdentifier, message):
+            print("HealthKitBridge query failed type=\(typeIdentifier) error=\(message)")
+            healthMetricError = "HealthKit query failed for \(typeIdentifier): \(message)"
+            appendLocal(.failed, healthMetricError ?? "HealthKit query failed")
+        }
     }
 
     private func label(for status: UNAuthorizationStatus) -> String {

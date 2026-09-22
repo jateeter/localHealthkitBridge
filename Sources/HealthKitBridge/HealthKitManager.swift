@@ -11,16 +11,28 @@ import HealthKit
 @available(iOS 16.0, macOS 13.0, *)
 public final class HealthKitManager: @unchecked Sendable {
     public typealias BatchHandler = @Sendable ([IngestSample]) -> Void
+    public typealias EventHandler = @Sendable (HealthKitRuntimeEvent) -> Void
+
+    private struct FamilyReading {
+        let sample: IngestSample
+        let snapshot: HealthMetricSnapshot
+    }
 
     private let store = HKHealthStore()
     private let anchors: AnchorStore
     private let queue = DispatchQueue(label: "healthkit-bridge.manager")
     private var activeQueries: [HKQuery] = []
     private let onBatch: BatchHandler
+    private let onEvent: EventHandler
 
-    public init(anchors: AnchorStore = AnchorStore(), onBatch: @escaping BatchHandler) {
+    public init(
+        anchors: AnchorStore = AnchorStore(),
+        onBatch: @escaping BatchHandler,
+        onEvent: @escaping EventHandler = { _ in }
+    ) {
         self.anchors = anchors
         self.onBatch = onBatch
+        self.onEvent = onEvent
     }
 
     public static var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
@@ -69,6 +81,21 @@ public final class HealthKitManager: @unchecked Sendable {
         try await store.requestAuthorization(toShare: [], read: Self.readTypes)
     }
 
+    /// Returns whether HealthKit still needs to present an authorization
+    /// request. HealthKit intentionally does not reveal per-type read denial;
+    /// `.unnecessary` means the owner has already answered the request.
+    public func authorizationRequestIsNecessary() async throws -> Bool {
+        try await withCheckedThrowingContinuation { continuation in
+            store.getRequestStatusForAuthorization(toShare: [], read: Self.readTypes) { status, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: status == .shouldRequest)
+                }
+            }
+        }
+    }
+
     // MARK: - Observers
 
     /// Starts one anchored observer per observed type and enables background
@@ -76,8 +103,26 @@ public final class HealthKitManager: @unchecked Sendable {
     public func startObservers() {
         for type in Self.observedTypes {
             startAnchoredQuery(for: type)
-            store.enableBackgroundDelivery(for: type, frequency: .immediate) { _, _ in }
+            store.enableBackgroundDelivery(for: type, frequency: .immediate) { [weak self] _, error in
+                if let error {
+                    self?.onEvent(.queryFailed(typeIdentifier: type.identifier, message: error.localizedDescription))
+                }
+            }
         }
+    }
+
+    /// Reads the latest owner-authorized values even when anchored observers
+    /// have already consumed older samples. The resulting normalized samples
+    /// are delivered through the same audited PE path as observer updates.
+    public func refreshSnapshot() async {
+        async let bloodPressure = bloodPressureReading()
+        async let exercise = exerciseReading()
+        async let sleep = sleepReading()
+        let readings = await [bloodPressure, exercise, sleep].compactMap { $0 }
+        let present = Set(readings.map(\.snapshot.family))
+        let missing = HealthMetricSnapshot.Family.allCases.filter { !present.contains($0) }
+        onEvent(.snapshot(readings.map(\.snapshot), refreshedAt: Date(), missing: missing))
+        if !readings.isEmpty { onBatch(readings.map(\.sample)) }
     }
 
     public func stopObservers() {
@@ -92,7 +137,11 @@ public final class HealthKitManager: @unchecked Sendable {
             try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0)
         }
         let handler: (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, Error?) -> Void = { [weak self] _, samples, _, newAnchor, error in
-            guard let self, error == nil else { return }
+            guard let self else { return }
+            if let error {
+                self.onEvent(.queryFailed(typeIdentifier: type.identifier, message: error.localizedDescription))
+                return
+            }
             if let newAnchor,
                let data = try? NSKeyedArchiver.archivedData(withRootObject: newAnchor, requiringSecureCoding: true) {
                 self.anchors.save(data, for: type.identifier)
@@ -117,22 +166,29 @@ public final class HealthKitManager: @unchecked Sendable {
     private func handleDelivery(for type: HKSampleType, samples: [HKSample]) {
         Task { [weak self] in
             guard let self else { return }
-            var batch: [IngestSample] = []
+            let reading: FamilyReading?
             switch type.identifier {
             case HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue:
-                if let bp = await self.latestBloodPressureSample() { batch.append(bp) }
+                reading = await self.bloodPressureReading()
             case HKCategoryTypeIdentifier.sleepAnalysis.rawValue:
-                if let sleep = await self.sleepSampleForLast24Hours() { batch.append(sleep) }
+                reading = await self.sleepReading()
             default:
-                if let exercise = await self.exerciseSampleForToday() { batch.append(exercise) }
+                reading = await self.exerciseReading()
             }
-            if !batch.isEmpty { self.onBatch(batch) }
+            if let reading {
+                self.onEvent(.snapshot([reading.snapshot], refreshedAt: Date(), missing: []))
+                self.onBatch([reading.sample])
+            }
         }
     }
 
     /// Latest blood-pressure correlation → BP family sample. Pulse comes from
     /// the most recent heart-rate reading in the correlation's window, if any.
     func latestBloodPressureSample() async -> IngestSample? {
+        await bloodPressureReading()?.sample
+    }
+
+    private func bloodPressureReading() async -> FamilyReading? {
         let bpType = HKCorrelationType.correlationType(forIdentifier: .bloodPressure)!
         guard let correlation = await latestSample(of: bpType) as? HKCorrelation else { return nil }
         let mmHg = HKUnit.millimeterOfMercury()
@@ -148,16 +204,33 @@ public final class HealthKitManager: @unchecked Sendable {
             unit: HKUnit.count().unitDivided(by: .minute()),
             over: window
         ) ?? 0
-        return SampleNormalizer.bloodPressure(
-            systolicMmHg: component(.bloodPressureSystolic),
-            diastolicMmHg: component(.bloodPressureDiastolic),
+        let systolic = component(.bloodPressureSystolic)
+        let diastolic = component(.bloodPressureDiastolic)
+        let sample = SampleNormalizer.bloodPressure(
+            systolicMmHg: systolic,
+            diastolicMmHg: diastolic,
             pulseBpm: pulse,
             sourceName: correlation.sourceRevision.source.name
+        )
+        let pulseSummary = pulse > 0 ? "Pulse \(Int(pulse.rounded())) bpm" : "Pulse unavailable"
+        return FamilyReading(
+            sample: sample,
+            snapshot: HealthMetricSnapshot(
+                family: .bloodPressure,
+                primaryValue: "\(Int(systolic.rounded()))/\(Int(diastolic.rounded())) mmHg",
+                secondaryValue: pulseSummary,
+                sourceName: correlation.sourceRevision.source.name,
+                measuredAt: correlation.endDate
+            )
         )
     }
 
     /// Today's activity totals → exercise family sample.
     func exerciseSampleForToday() async -> IngestSample? {
+        await exerciseReading()?.sample
+    }
+
+    private func exerciseReading() async -> FamilyReading? {
         let now = Date()
         let interval = DateInterval(start: Calendar.current.startOfDay(for: now), end: now)
         async let energy = sumQuantity(of: .activeEnergyBurned, unit: .kilocalorie(), over: interval)
@@ -165,15 +238,29 @@ public final class HealthKitManager: @unchecked Sendable {
         async let steps = sumQuantity(of: .stepCount, unit: .count(), over: interval)
         let (e, m, s) = await (energy, minutes, steps)
         guard e != nil || m != nil || s != nil else { return nil }
-        return SampleNormalizer.exercise(
+        let sample = SampleNormalizer.exercise(
             activeEnergyKcal: e ?? 0,
             exerciseMinutes: m ?? 0,
             steps: s ?? 0
+        )
+        return FamilyReading(
+            sample: sample,
+            snapshot: HealthMetricSnapshot(
+                family: .exercise,
+                primaryValue: "\(Int((s ?? 0).rounded()).formatted()) steps",
+                secondaryValue: "\(Int((m ?? 0).rounded())) min · \(Int((e ?? 0).rounded())) kcal",
+                sourceName: "Apple Health",
+                measuredAt: now
+            )
         )
     }
 
     /// Sleep-analysis samples from the last 24 h summed by stage → sleep family sample.
     func sleepSampleForLast24Hours() async -> IngestSample? {
+        await sleepReading()?.sample
+    }
+
+    private func sleepReading() async -> FamilyReading? {
         let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)!
         let now = Date()
         let predicate = HKQuery.predicateForSamples(
@@ -197,7 +284,17 @@ public final class HealthKitManager: @unchecked Sendable {
             sourceName = sourceName ?? sample.sourceRevision.source.name
         }
         guard total > 0 else { return nil }
-        return SampleNormalizer.sleep(totalHours: total, remHours: rem, coreHours: core, sourceName: sourceName)
+        let sample = SampleNormalizer.sleep(totalHours: total, remHours: rem, coreHours: core, sourceName: sourceName)
+        return FamilyReading(
+            sample: sample,
+            snapshot: HealthMetricSnapshot(
+                family: .sleep,
+                primaryValue: String(format: "%.1f hr", total),
+                secondaryValue: String(format: "REM %.1f hr · Core %.1f hr", rem, core),
+                sourceName: sourceName ?? "Apple Health",
+                measuredAt: now
+            )
+        )
     }
 
     // MARK: - Query helpers

@@ -12,10 +12,10 @@ final class SeededFlowUITests: XCTestCase {
         // Cold hosted runners are slower to first render than a warm local
         // simulator, so the first wait is generous. Later waits can be short
         // because the app is already up by then.
-        XCTAssertTrue(app.navigationBars["Wellness"].waitForExistence(timeout: 90),
-                      "Wellness should be the landing tab")
-        XCTAssertTrue(app.staticTexts["OpenCommons Health"].waitForExistence(timeout: 10),
-                      "OpenCommons Health branding should be visible")
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 90),
+                      "Overview should be the landing tab")
+        XCTAssertTrue(app.staticTexts["OCH-100 CENTRAL"].waitForExistence(timeout: 10),
+                      "OpenCommons Health system badge should be visible")
         XCTAssertTrue(app.descendants(matching: .any)["WellnessSpiderGraph"].waitForExistence(timeout: 10),
                       "Wellness landing should expose the same spider graph entry point as the PIM")
         XCTAssertTrue(app.buttons["PatientOwnerMenu"].waitForExistence(timeout: 10),
@@ -38,10 +38,8 @@ final class SeededFlowUITests: XCTestCase {
         app.swipeDown()
 
         tapPatientDomain("vital-signs", in: app)
-        XCTAssertTrue(app.navigationBars["Vital signs"].waitForExistence(timeout: 20),
-                      "Vital signs should open a semantic graph landing view")
-        XCTAssertTrue(app.descendants(matching: .any)["SemanticSpiderGraph-vital-signs"].waitForExistence(timeout: 10),
-                      "Vital signs should render the semantic spider graph")
+        XCTAssertTrue(app.navigationBars["Physical Health Detail"].waitForExistence(timeout: 20),
+                      "Physical Health should open the Figma-aligned metric detail view")
 
         for nodeID in ["blood-pressure", "heart-rate", "body-temperature", "oxygen-saturation", "body-weight", "bmi"] {
             XCTAssertTrue(app.buttons["SemanticNode-\(nodeID)"].waitForExistence(timeout: 10),
@@ -56,12 +54,12 @@ final class SeededFlowUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["SemanticElementSummaryTable"].waitForExistence(timeout: 10),
                       "Selecting a node should show its current data summary")
         app.buttons["SemanticElementAddButton"].tap()
-        XCTAssertTrue(app.navigationBars["Add Heart rate"].waitForExistence(timeout: 10),
-                      "Add should open the data entry modal for the selected semantic element")
+        XCTAssertTrue(app.navigationBars["New Physical Health Record"].waitForExistence(timeout: 10),
+                      "Add should open the Figma-aligned data entry sheet")
         XCTAssertTrue(app.staticTexts["LOINC 8867-4"].waitForExistence(timeout: 10),
                       "Add modal should expose the PIM/FHIR coding context")
         app.buttons["Cancel"].tap()
-        app.navigationBars["Vital signs"].buttons.firstMatch.tap()
+        app.navigationBars["Physical Health Detail"].buttons.firstMatch.tap()
 
         let dailyTimeline = app.descendants(matching: .any)["DailyTimeline"]
         scrollUntilVisible(dailyTimeline, in: app)
@@ -70,13 +68,22 @@ final class SeededFlowUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["DailyActivity-morning-medications"].waitForExistence(timeout: 10),
                       "Default daily plan should start with the morning medication regimen")
 
-        app.tabBars.buttons["Bridge"].tap()
+        let bridgeControls = app.buttons["Open HealthKit Bridge controls"]
+        scrollUntilVisible(bridgeControls, in: app)
+        bridgeControls.tap()
         XCTAssertTrue(app.navigationBars["HK Bridge"].waitForExistence(timeout: 20),
-                      "Bridge tab should still reach the existing bridge screen")
+                      "Overview actions should still reach the existing bridge screen")
+        let metricsSection = app.staticTexts["Apple Health metrics"]
+        scrollUntilVisible(metricsSection, in: app)
+        XCTAssertTrue(metricsSection.waitForExistence(timeout: 10),
+                      "Bridge controls should expose owner-authorized Apple Health summaries")
+        XCTAssertTrue(app.buttons["RefreshHealthMetricsButton"].waitForExistence(timeout: 10),
+                      "Bridge controls should expose a manual Apple Health snapshot refresh")
+        app.navigationBars["HK Bridge"].buttons.firstMatch.tap()
 
-        app.tabBars.buttons["Pod"].tap()
-        XCTAssertTrue(app.navigationBars["Pod"].waitForExistence(timeout: 20),
-                      "Pod tab should still reach the existing pod screen")
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 20),
+                      "Settings tab should still reach the existing Pod screen")
         let podTermsLink = app.descendants(matching: .any)["PodTermsLink"]
         scrollUntilVisible(podTermsLink, in: app)
         XCTAssertTrue(podTermsLink.waitForExistence(timeout: 10),
@@ -86,10 +93,10 @@ final class SeededFlowUITests: XCTestCase {
         XCTAssertTrue(podDisclosureLink.waitForExistence(timeout: 10),
                       "Pod screen should expose Data Disclosure")
 
-        // Returning proves the Wellness tab did not replace the other screens.
-        app.tabBars.buttons["Wellness"].tap()
-        XCTAssertTrue(app.navigationBars["Wellness"].waitForExistence(timeout: 20),
-                      "Wellness tab should remain reachable after visiting Bridge and Pod")
+        // Returning proves the Overview tab did not replace the other screens.
+        app.tabBars.buttons["Overview"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 20),
+                      "Overview tab should remain reachable after visiting Bridge and Settings")
     }
 
     func testSeededDeliveryReachesPE() throws {
@@ -100,7 +107,7 @@ final class SeededFlowUITests: XCTestCase {
             "-peBaseURL", env["PE_BASE_URL"] ?? "http://127.0.0.1:3499",
         ]
         if let token = env["HEALTHKIT_BRIDGE_TOKEN"], !token.isEmpty {
-            app.launchArguments += ["-bridgeToken", token]
+            app.launchEnvironment["HEALTHKIT_BRIDGE_TOKEN"] = token
         }
         app.launch()
 

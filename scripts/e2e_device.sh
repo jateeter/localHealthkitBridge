@@ -95,8 +95,7 @@ xcrun devicectl device process launch --terminate-existing --device "$DEVICE_ID"
   "$BUNDLE_ID" \
   -- \
   -autoTestPush 1 \
-  -peBaseURL "$PE_BASE_URL" \
-  ${HEALTHKIT_BRIDGE_TOKEN:+-bridgeToken "$HEALTHKIT_BRIDGE_TOKEN"}
+  -peBaseURL "$PE_BASE_URL"
 
 echo "── Waiting for sensors to land"
 found=0
