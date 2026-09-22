@@ -26,6 +26,56 @@ public struct IngestSample: Codable, Equatable, Sendable {
     }
 }
 
+/// Owner-visible summary of a HealthKit family. Raw HealthKit objects never
+/// leave the device; this deliberately carries only the values needed by the
+/// bridge UI and the time/source provenance needed to distinguish real data
+/// from connectivity-test batches.
+public struct HealthMetricSnapshot: Identifiable, Equatable, Sendable {
+    public enum Family: String, CaseIterable, Codable, Sendable {
+        case bloodPressure
+        case exercise
+        case sleep
+
+        public var title: String {
+            switch self {
+            case .bloodPressure: return "Blood pressure"
+            case .exercise: return "Activity"
+            case .sleep: return "Sleep"
+            }
+        }
+    }
+
+    public var id: Family { family }
+    public let family: Family
+    public let primaryValue: String
+    public let secondaryValue: String?
+    public let sourceName: String?
+    public let measuredAt: Date
+    public let isTestData: Bool
+
+    public init(
+        family: Family,
+        primaryValue: String,
+        secondaryValue: String? = nil,
+        sourceName: String? = nil,
+        measuredAt: Date,
+        isTestData: Bool = false
+    ) {
+        self.family = family
+        self.primaryValue = primaryValue
+        self.secondaryValue = secondaryValue
+        self.sourceName = sourceName
+        self.measuredAt = measuredAt
+        self.isTestData = isTestData
+    }
+}
+
+/// Runtime events emitted by HealthKit queries independently of PE delivery.
+public enum HealthKitRuntimeEvent: Sendable {
+    case snapshot([HealthMetricSnapshot], refreshedAt: Date, missing: [HealthMetricSnapshot.Family])
+    case queryFailed(typeIdentifier: String, message: String)
+}
+
 struct IngestRequestBody: Encodable {
     var bridgeId: String
     var anchorToken: String?

@@ -13,7 +13,9 @@ struct MobilePodManagementView: View {
             legalSection
             privacySection
         }
-        .navigationTitle("Pod")
+        .scrollContentBackground(.hidden)
+        .background(Color(red: 246 / 255, green: 244 / 255, blue: 236 / 255))
+        .navigationTitle("Settings")
     }
 
     private var connectionSection: some View {

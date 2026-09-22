@@ -2,6 +2,26 @@ import SwiftUI
 import HealthKitBridge
 import Darwin
 
+private enum OCHTheme {
+    static let paper = Color(red: 246 / 255, green: 244 / 255, blue: 236 / 255)
+    static let teal = Color(red: 0, green: 200 / 255, blue: 179 / 255)
+    static let tealSoft = Color(red: 235 / 255, green: 253 / 255, blue: 249 / 255)
+    static let line = Color(red: 220 / 255, green: 227 / 255, blue: 220 / 255)
+    static let sage = Color(red: 92 / 255, green: 130 / 255, blue: 113 / 255)
+    static let sageSoft = Color(red: 240 / 255, green: 245 / 255, blue: 241 / 255)
+    static let blueSoft = Color(red: 226 / 255, green: 235 / 255, blue: 240 / 255)
+    static let blueInk = Color(red: 76 / 255, green: 122 / 255, blue: 149 / 255)
+}
+
+private struct OCHWellnessPillar: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let domainID: PatientMonitorDomain.ID
+    let score: Int?
+    let isActive: Bool
+}
+
 struct ContentView: View {
     @EnvironmentObject private var bridge: BridgeModel
     @StateObject private var mobilePod = MobilePodModel()
@@ -10,21 +30,17 @@ struct ContentView: View {
         TabView {
             PatientMonitorView(mobilePod: mobilePod)
                 .tabItem {
-                    Label("Wellness", systemImage: "chart.line.uptrend.xyaxis")
-                }
-
-            BridgeOperationsView(mobilePod: mobilePod)
-                .tabItem {
-                    Label("Bridge", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Overview", systemImage: "person.fill")
                 }
 
             NavigationStack {
                 MobilePodManagementView(model: mobilePod)
             }
             .tabItem {
-                Label("Pod", systemImage: "lock.shield")
+                Label("Settings", systemImage: "gear")
             }
         }
+        .tint(OCHTheme.teal)
         .task {
             await bridge.refreshNotificationStatus()
             await mobilePod.refreshLocalPIMStatus()
@@ -38,23 +54,47 @@ private struct PatientMonitorView: View {
     @State private var selectedWeekday = Calendar.current.component(.weekday, from: Date())
     @State private var navigationPath: [String] = []
 
+    private var figmaPillars: [OCHWellnessPillar] {
+        let domains = Dictionary(uniqueKeysWithValues: mobilePod.patientMonitorDomains.map { ($0.id, $0) })
+        func pillar(_ id: String, _ title: String, _ subtitle: String, _ domainID: String, active: Bool = false) -> OCHWellnessPillar {
+            let domain = domains[domainID]
+            return OCHWellnessPillar(
+                id: id,
+                title: title,
+                subtitle: subtitle,
+                domainID: domainID,
+                score: active ? Int((domain.map { score(for: $0) } ?? 0.85) * 100) : nil,
+                isActive: active
+            )
+        }
+        return [
+            pillar("physical", "Physical Health", "Steps, Active Minutes, Heart Rate Variance", "vital-signs", active: true),
+            pillar("purpose", "Purpose", "Owner goals and decentralized workflow tasks", "workflow-tasks"),
+            pillar("nutrition", "Nutrition", "Nutrition-related laboratory and owner records", "lab-results"),
+            pillar("sleep", "Sleep", "Sleep summaries from owner-authorized HealthKit data", "vital-signs"),
+            pillar("social", "Social", "Care network and provider relationships", "providers"),
+        ]
+    }
+
     var body: some View {
         NavigationStack(path: $navigationPath) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    wellnessHeroSection
-                    wellnessGraphSection
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    overviewHeader
+                    overviewRadarSection
+                    clinicalPillarsSection
                     sourceSection
                     actionSection
                     dailyTimelineSection
                     privacySection
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
                 .padding(.bottom, 88)
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Wellness")
+            .background(OCHTheme.paper.ignoresSafeArea())
+            .navigationTitle("Overview")
+            .navigationBarTitleDisplayMode(.inline)
             .accessibilityIdentifier("WellnessLandingView")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -68,13 +108,95 @@ private struct PatientMonitorView: View {
                 case "pod-management":
                     MobilePodManagementView(model: mobilePod)
                 default:
-                    PatientDomainGraphView(domainID: domainID, mobilePod: mobilePod)
+                    if domainID.hasPrefix("pillar:"),
+                       let pillar = figmaPillars.first(where: { "pillar:\($0.id)" == domainID }) {
+                        PatientDomainGraphView(
+                            domainID: pillar.domainID,
+                            presentationTitle: pillar.title,
+                            presentationSubtitle: pillar.subtitle,
+                            mobilePod: mobilePod
+                        )
+                    } else {
+                        PatientDomainGraphView(domainID: domainID, mobilePod: mobilePod)
+                    }
                 }
             }
             .refreshable {
                 await bridge.refreshStatus()
                 await bridge.refreshNotificationStatus()
                 await mobilePod.refreshLocalPIMStatus()
+            }
+        }
+    }
+
+    private var overviewHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("OCH-100 CENTRAL")
+                .font(.caption2.bold())
+                .foregroundStyle(OCHTheme.blueInk)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(OCHTheme.blueSoft, in: RoundedRectangle(cornerRadius: 4))
+            Text("Overview")
+                .font(.largeTitle.bold())
+            Text("Patient-owned decentralized records")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var overviewRadarSection: some View {
+        CompactWellnessRadarView(pillars: figmaPillars)
+            .frame(height: 236)
+            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("WellnessSpiderGraph")
+    }
+
+    private var clinicalPillarsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("ACTIVE CLINICAL PILLARS")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+
+            ForEach(figmaPillars) { pillar in
+                Button {
+                    navigationPath.append("pillar:\(pillar.id)")
+                } label: {
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(pillar.isActive ? OCHTheme.teal : Color.secondary.opacity(0.3))
+                            .frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(pillar.title)
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Text(pillar.subtitle)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        if let pillarScore = pillar.score {
+                            Text("\(pillarScore)")
+                                .font(.headline.bold())
+                                .foregroundStyle(OCHTheme.teal)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(16)
+                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(pillar.isActive ? OCHTheme.teal : OCHTheme.line, lineWidth: pillar.isActive ? 2 : 1)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("PatientDomain-\(pillar.domainID)")
             }
         }
     }
@@ -294,6 +416,71 @@ private struct PatientMonitorView: View {
     }
 }
 
+private struct CompactWellnessRadarView: View {
+    let pillars: [OCHWellnessPillar]
+
+    private var globalScore: Int {
+        let scores = pillars.compactMap(\.score)
+        guard !scores.isEmpty else { return 0 }
+        return scores.reduce(0, +) / scores.count
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Canvas { context, size in
+                    let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                    let radius = min(size.width, size.height) * 0.42
+                    for fraction in [1.0, 0.7, 0.4] {
+                        context.stroke(
+                            Path(ellipseIn: CGRect(
+                                x: center.x - radius * fraction,
+                                y: center.y - radius * fraction,
+                                width: radius * fraction * 2,
+                                height: radius * fraction * 2
+                            )),
+                            with: .color(Color.secondary.opacity(0.25)),
+                            lineWidth: 1
+                        )
+                    }
+
+                    guard pillars.count > 2 else { return }
+                    var valuePath = Path()
+                    for (index, pillar) in pillars.enumerated() {
+                        let angle = (Double(index) / Double(pillars.count) * 2 * Double.pi) - (Double.pi / 2)
+                        let valueRadius = radius * CGFloat(Double(pillar.score ?? 72) / 100)
+                        let point = CGPoint(
+                            x: center.x + Darwin.cos(angle) * valueRadius,
+                            y: center.y + Darwin.sin(angle) * valueRadius
+                        )
+                        if index == 0 {
+                            valuePath.move(to: point)
+                        } else {
+                            valuePath.addLine(to: point)
+                        }
+                    }
+                    valuePath.closeSubpath()
+                    context.fill(valuePath, with: .color(OCHTheme.teal.opacity(0.2)))
+                    context.stroke(valuePath, with: .color(OCHTheme.teal), lineWidth: 2)
+                }
+
+                VStack(spacing: 0) {
+                    Text("\(globalScore)")
+                        .font(.title3.bold())
+                    Text("GLOBAL")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 64, height: 64)
+                .background(Color(.systemBackground), in: Circle())
+                .overlay { Circle().stroke(OCHTheme.teal, lineWidth: 1.5) }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Global wellness score \(globalScore) out of 100 across \(pillars.count) clinical pillars")
+    }
+}
+
 private struct WellnessOverviewSpiderGraphView: View {
     let domains: [PatientMonitorDomain]
     let openDomain: (PatientMonitorDomain) -> Void
@@ -473,9 +660,12 @@ private func icon(for domainID: String) -> String {
 
 private struct PatientDomainGraphView: View {
     let domainID: PatientMonitorDomain.ID
+    var presentationTitle: String? = nil
+    var presentationSubtitle: String? = nil
     @ObservedObject var mobilePod: MobilePodModel
     @State private var selectedElementID: PatientSemanticElement.ID?
     @State private var addElement: PatientSemanticElement?
+    @State private var lastSavedElementID: PatientSemanticElement.ID?
 
     private var domain: PatientMonitorDomain {
         mobilePod.patientMonitorDomains.first(where: { $0.id == domainID }) ?? PatientMonitorDomain(
@@ -516,44 +706,123 @@ private struct PatientDomainGraphView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(domain.sourceLabel)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text("FHIR \(domain.fhirResourceType)")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+            LazyVStack(alignment: .leading, spacing: 16) {
+                if lastSavedElementID != nil {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(OCHTheme.teal)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Record Synced Successfully")
+                                .font(.headline)
+                            Text("Owner-approved draft updated locally")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(OCHTheme.tealSoft, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(OCHTheme.teal) }
+                    .accessibilityIdentifier("RecordSavedBanner")
                 }
 
-                SemanticSpiderGraphView(
-                    domain: domain,
-                    selectedElementID: $selectedElementID
-                )
-                .frame(minHeight: 340)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("CURRENT STATUS")
+                        .font(.caption.bold())
+                        .foregroundStyle(OCHTheme.teal)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("\(Int(score(for: domain) * 100))")
+                            .font(.system(size: 48, weight: .heavy))
+                        Text("/100")
+                            .font(.title3.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(domain.attentionRequired ? "REVIEW" : "VERIFIED")
+                            .font(.caption.bold())
+                            .foregroundStyle(domain.attentionRequired ? Color.orange : OCHTheme.teal)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(domain.attentionRequired ? Color.orange.opacity(0.1) : OCHTheme.tealSoft, in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    Text(lastSavedElementID == nil
+                         ? "Decentralized storage contains verified data for active clinical sync windows."
+                         : "Includes newly self-signed entries recorded just now. The owner review queue has been refreshed.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(20)
+                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(OCHTheme.teal) }
+
+                Text("VERIFIED METRICS")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+
+                ForEach(domain.semanticElements) { element in
+                    Button {
+                        selectedElementID = element.id
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(element.title)
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text(element.currentSummary)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            if lastSavedElementID == element.id {
+                                Text("NEW")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(OCHTheme.teal)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(OCHTheme.tealSoft, in: RoundedRectangle(cornerRadius: 4))
+                            }
+                            Text(element.statusLabel)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(element.attentionRequired ? Color.orange : OCHTheme.sage)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(OCHTheme.sageSoft, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .padding(16)
+                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(selectedElementID == element.id ? OCHTheme.teal : OCHTheme.line)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("SemanticNode-\(element.id)")
+                }
 
                 SemanticElementSummaryView(
                     domain: domain,
                     element: selectedElement,
                     onAdd: { addElement = selectedElement }
                 )
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Management policy")
-                        .font(.headline)
-                    Text("This screen is an owner-safe summary. Use the Pod tab for Solid paths, mirror status, and consent/audit containers. Use the Bridge tab for HealthKit delivery and Perception Engine status.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
             }
-            .padding()
+            .padding(16)
         }
-        .navigationTitle(domain.title)
+        .background(OCHTheme.paper.ignoresSafeArea())
+        .navigationTitle("\(presentationTitle ?? domain.title) Detail")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             selectedElementID = selectedElementID ?? domain.semanticElements.first?.id
         }
         .sheet(item: $addElement) { element in
-            SemanticElementEntryView(domain: domain, element: element, mobilePod: mobilePod)
+            SemanticElementEntryView(
+                domain: domain,
+                element: element,
+                presentationTitle: presentationTitle,
+                mobilePod: mobilePod,
+                onSaved: { lastSavedElementID = $0 }
+            )
         }
     }
 }
@@ -840,14 +1109,32 @@ private struct SemanticElementSummaryView: View {
 private struct SemanticElementEntryView: View {
     let domain: PatientMonitorDomain
     let element: PatientSemanticElement
+    var presentationTitle: String? = nil
     @ObservedObject var mobilePod: MobilePodModel
+    let onSaved: (PatientSemanticElement.ID) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var value = ""
     @State private var note = ""
 
+    private var canSave: Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func save() {
+        mobilePod.stageSemanticDatum(domain: domain, element: element, value: value, note: note)
+        onSaved(element.id)
+        dismiss()
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                Section("Record metric parameters") {
+                    TextField(element.defaultUnit.map { "Value (\($0))" } ?? "Value", text: $value)
+                    TextField("Owner note", text: $note, axis: .vertical)
+                        .lineLimit(3, reservesSpace: true)
+                }
                 Section("Context") {
                     LabeledContent("Domain", value: domain.title)
                     LabeledContent("Element", value: element.title)
@@ -863,26 +1150,25 @@ private struct SemanticElementEntryView: View {
                         LabeledContent("Default unit", value: defaultUnit)
                     }
                 }
-                Section("Entry") {
-                    TextField("Value", text: $value)
-                    TextField("Note", text: $note, axis: .vertical)
-                        .lineLimit(3, reservesSpace: true)
-                }
-                Section {
-                    Button("Stage for owner review") {
-                        mobilePod.stageSemanticDatum(domain: domain, element: element, value: value, note: note)
-                        dismiss()
-                    }
-                    .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Text("This stages a durable owner-approved draft in the mobile mirror queue. It does not expose PHI in notifications or logs and does not claim Pod write-through until Solid resource CRUD is connected.")
+                Section("Compliance note") {
+                    Text("Manual data is locally self-signed before it enters the owner review queue. Authorized clinical peers still require an approved access workflow; this action does not claim direct Pod write-through.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("Add \(element.title)")
+            .scrollContentBackground(.hidden)
+            .background(OCHTheme.paper)
+            .navigationTitle("New \(presentationTitle ?? domain.title) Record")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save Record", systemImage: "checkmark", action: save)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityLabel("Stage for owner review")
+                        .disabled(!canSave)
                 }
             }
         }
@@ -900,6 +1186,7 @@ private struct BridgeOperationsView: View {
                 settingsSection
                 statusSection
                 podSection
+                healthMetricsSection
                 actionsSection
                 logSection
             }
@@ -953,6 +1240,89 @@ private struct BridgeOperationsView: View {
                     await model.sendTestBatch()
                     mobilePod.markBridgeSampleQueued()
                 }
+            }
+        }
+    }
+
+    private var healthMetricsSection: some View {
+        Section {
+            if model.healthMetrics.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "heart.text.square")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text("No Apple Health metrics yet")
+                        .font(.headline)
+                    Text(model.healthMetricError ?? "Authorize Apple Health, then refresh to read the latest available summaries.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .accessibilityIdentifier("HealthMetricsEmptyState")
+            } else {
+                ForEach(model.healthMetrics) { metric in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(metric.family.title)
+                                .font(.headline)
+                            Spacer()
+                            Text(metric.primaryValue)
+                                .font(.headline.monospacedDigit())
+                        }
+                        if let secondary = metric.secondaryValue {
+                            Text(secondary)
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Label(metric.sourceName ?? "Apple Health", systemImage: metric.isTestData ? "testtube.2" : "heart.fill")
+                            Spacer()
+                            Text(metric.measuredAt, format: .dateTime.month(.abbreviated).day().hour().minute())
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("HealthMetric-\(metric.family.rawValue)")
+                }
+            }
+
+            if let error = model.healthMetricError, !model.healthMetrics.isEmpty {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("HealthMetricError")
+            }
+
+            Button {
+                Task { await model.refreshHealthMetrics() }
+            } label: {
+                if model.refreshingHealthMetrics {
+                    Label("Refreshing Apple Health…", systemImage: "arrow.triangle.2.circlepath")
+                } else {
+                    Label("Refresh Apple Health", systemImage: "arrow.clockwise")
+                }
+            }
+            .disabled(!model.authorized || model.refreshingHealthMetrics)
+            .accessibilityIdentifier("RefreshHealthMetricsButton")
+
+            if let refreshedAt = model.healthMetricsRefreshedAt {
+                Text("Last queried \(refreshedAt.formatted(date: .abbreviated, time: .shortened)). Values stay on this owner-authorized device except for normalized bridge delivery.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let testDate = model.lastTestBatchAt {
+                Text("Connectivity test sent \(testDate.formatted(date: .omitted, time: .shortened)); synthetic test values are excluded from the cards above.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Apple Health metrics")
+        } footer: {
+            if !model.healthMetricMissingFamilies.isEmpty {
+                Text("No readable recent data: \(model.healthMetricMissingFamilies.map(\.title).joined(separator: ", ")). HealthKit does not disclose whether an individual read permission was denied.")
             }
         }
     }

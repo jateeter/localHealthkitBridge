@@ -26,12 +26,16 @@ struct HealthKitBridgeApp: App {
                 .environmentObject(model)
                 .task {
                     await model.refreshStatus()
+                    await model.restoreHealthKitRuntimeState()
                     // e2e hook: `simctl launch ... -autoTestPush 1` pushes one
                     // nominal batch on launch so simulator/device runs need no taps.
                     let autoTestPush = UserDefaults.standard.bool(forKey: "autoTestPush")
                         || launchArgumentBool(for: "autoTestPush")
                         || launchEnvironmentBool("AUTO_TEST_PUSH", "HEALTHKIT_AUTO_TEST_PUSH")
-                    print("HealthKitBridge launch autoTestPush=\(autoTestPush) args=\(ProcessInfo.processInfo.arguments)")
+                    // Never log process arguments: device/e2e launches may use
+                    // them for credentials. Only non-sensitive mode flags are
+                    // safe to expose in diagnostics.
+                    print("HealthKitBridge launch autoTestPush=\(autoTestPush)")
                     if autoTestPush {
                         await model.sendTestBatch()
                     }

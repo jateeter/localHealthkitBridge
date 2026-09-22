@@ -18,10 +18,23 @@ OpenCommons Health PIM and Solid Community Server. It surfaces:
   wired through the mobile Solid package adapter.
 - Legal and disclosure document links served by the configured local PIM stack.
 
+The iPhone presentation follows the shared Figma mobile system: a compact
+Overview radar, reusable clinical-pillar and metric cards, pushed detail views,
+sheet-based record entry, and native Overview / Settings tabs. HealthKit Bridge
+controls remain available as a pushed owner action from Overview. The
+visual layer does not change the validated HealthKit ingest or Pod staging
+contracts.
+
 No tokens, DPoP keys, refresh tokens, raw PHI, or full Pod resource bodies are
 shown in the mobile status UI.
 
 ## Implemented issue mapping
+
+HK Bridge controls publish owner-authorized Apple Health summary cards for
+blood pressure, daily activity, and recent sleep. The cards include source and
+timestamp provenance, manual refresh, persistent observer restart, and visible
+query failures. Connectivity-test values remain distinct from live HealthKit
+data.
 
 | Issue | Mobile behavior |
 | --- | --- |
