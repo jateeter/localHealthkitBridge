@@ -33,6 +33,11 @@ struct ContentView: View {
                     Label("Overview", systemImage: "person.fill")
                 }
 
+            ReconciliationView(model: mobilePod)
+                .tabItem {
+                    Label("Reconcile", systemImage: "arrow.triangle.2.circlepath")
+                }
+
             NavigationStack {
                 MobilePodManagementView(model: mobilePod)
             }

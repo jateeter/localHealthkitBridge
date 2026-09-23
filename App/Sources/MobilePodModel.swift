@@ -325,6 +325,18 @@ final class MobilePodModel: ObservableObject {
         lastStatusMessage = "Marked HealthKit bridge summaries as pending mirror to the owner Pod."
     }
 
+    func approveReconciliationForMirror(resolvedCount: Int, addedCount: Int, updatedCount: Int) {
+        containers = containers.map { container in
+            var next = container
+            if container.resourceKind == .syncManifest || container.resourceKind == .audit {
+                next.itemCount += 1
+                next.mirrorState = .pendingMirror
+            }
+            return next
+        }
+        lastStatusMessage = "Owner approved a local reconciliation: \(resolvedCount) resolved, \(addedCount) new, \(updatedCount) updated. Pod mirroring remains queued until authenticated write-through is available."
+    }
+
     func stageSemanticDatum(domain: PatientMonitorDomain, element: PatientSemanticElement, value: String, note: String) {
         let datum = StagedPatientDatum(
             id: UUID(),
