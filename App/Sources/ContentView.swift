@@ -22,21 +22,30 @@ private struct OCHWellnessPillar: Identifiable, Hashable {
     let isActive: Bool
 }
 
+private enum OCHAppTab: Hashable {
+    case overview
+    case reconcile
+    case settings
+}
+
 struct ContentView: View {
     @EnvironmentObject private var bridge: BridgeModel
     @StateObject private var mobilePod = MobilePodModel()
+    @State private var selectedTab: OCHAppTab = .overview
 
     var body: some View {
-        TabView {
-            PatientMonitorView(mobilePod: mobilePod)
+        TabView(selection: $selectedTab) {
+            PatientMonitorView(mobilePod: mobilePod, selectedTab: $selectedTab)
                 .tabItem {
                     Label("Overview", systemImage: "person.fill")
                 }
+                .tag(OCHAppTab.overview)
 
             ReconciliationView(model: mobilePod)
                 .tabItem {
                     Label("Reconcile", systemImage: "arrow.triangle.2.circlepath")
                 }
+                .tag(OCHAppTab.reconcile)
 
             NavigationStack {
                 MobilePodManagementView(model: mobilePod)
@@ -44,6 +53,7 @@ struct ContentView: View {
             .tabItem {
                 Label("Settings", systemImage: "gear")
             }
+            .tag(OCHAppTab.settings)
         }
         .tint(OCHTheme.teal)
         .task {
@@ -56,29 +66,21 @@ struct ContentView: View {
 private struct PatientMonitorView: View {
     @EnvironmentObject private var bridge: BridgeModel
     @ObservedObject var mobilePod: MobilePodModel
+    @Binding var selectedTab: OCHAppTab
     @State private var selectedWeekday = Calendar.current.component(.weekday, from: Date())
     @State private var navigationPath: [String] = []
 
     private var figmaPillars: [OCHWellnessPillar] {
-        let domains = Dictionary(uniqueKeysWithValues: mobilePod.patientMonitorDomains.map { ($0.id, $0) })
-        func pillar(_ id: String, _ title: String, _ subtitle: String, _ domainID: String, active: Bool = false) -> OCHWellnessPillar {
-            let domain = domains[domainID]
-            return OCHWellnessPillar(
-                id: id,
-                title: title,
-                subtitle: subtitle,
-                domainID: domainID,
-                score: active ? Int((domain.map { score(for: $0) } ?? 0.85) * 100) : nil,
-                isActive: active
+        mobilePod.patientMonitorDomains.map { domain in
+            OCHWellnessPillar(
+                id: domain.id,
+                title: domain.title,
+                subtitle: pillarSubtitle(for: domain.id),
+                domainID: domain.id,
+                score: Int(score(for: domain) * 100),
+                isActive: domain.itemCount > 0 || domain.attentionRequired
             )
         }
-        return [
-            pillar("physical", "Physical Health", "Steps, Active Minutes, Heart Rate Variance", "vital-signs", active: true),
-            pillar("purpose", "Purpose", "Owner goals and decentralized workflow tasks", "workflow-tasks"),
-            pillar("nutrition", "Nutrition", "Nutrition-related laboratory and owner records", "lab-results"),
-            pillar("sleep", "Sleep", "Sleep summaries from owner-authorized HealthKit data", "vital-signs"),
-            pillar("social", "Social", "Care network and provider relationships", "providers"),
-        ]
     }
 
     var body: some View {
@@ -153,10 +155,30 @@ private struct PatientMonitorView: View {
     }
 
     private var overviewRadarSection: some View {
-        CompactWellnessRadarView(pillars: figmaPillars)
-            .frame(height: 236)
+        WellnessOverviewSpiderGraphView(
+            domains: mobilePod.patientMonitorDomains,
+            openDomain: { navigationPath.append("pillar:\($0.id)") }
+        )
+            .frame(height: 360)
             .frame(maxWidth: .infinity)
             .accessibilityIdentifier("WellnessSpiderGraph")
+    }
+
+    private func pillarSubtitle(for domainID: String) -> String {
+        switch domainID {
+        case "profiles": return "Identity, demographics, and owner profile"
+        case "conditions": return "Active, historical, and resolved conditions"
+        case "medications": return "Medicines, dosage, prescriber, and history"
+        case "allergies": return "Medication, food, and environmental sensitivities"
+        case "immunizations": return "Vaccines, dates, doses, and performers"
+        case "vital-signs": return "Blood pressure, heart rate, and body measures"
+        case "providers": return "Care team, pharmacy, and laboratory relationships"
+        case "lab-results": return "Results, trends, and clinical interpretation"
+        case "insurance-policies": return "Medical and pharmacy coverage"
+        case "documents": return "Visit summaries, reports, and care plans"
+        case "workflow-tasks": return "Owner review, follow-up, and due dates"
+        default: return "Owner-controlled health information"
+        }
     }
 
     private var clinicalPillarsSection: some View {
@@ -337,9 +359,15 @@ private struct PatientMonitorView: View {
                             Text(source.title)
                                 .font(.headline)
                             Spacer()
-                            Text(source.status)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(source.tint)
+                            Button {
+                                resolve(source: source)
+                            } label: {
+                                Label(source.status, systemImage: "arrow.right.circle.fill")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(source.tint)
+                            .accessibilityIdentifier("ResolveSourceStatus-\(source.title)")
                         }
                         Text(source.subtitle)
                             .font(.caption)
@@ -349,11 +377,21 @@ private struct PatientMonitorView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .accessibilityIdentifier("PatientSource-\(source.title)")
             }
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func resolve(source: PatientInformationSource) {
+        switch source.id {
+        case .healthKit:
+            navigationPath.append("bridge-controls")
+        case .epic:
+            selectedTab = .reconcile
+        case .solidPod:
+            navigationPath.append("pod-management")
+        }
     }
 
     private var actionSection: some View {
@@ -743,12 +781,22 @@ private struct PatientDomainGraphView: View {
                             .font(.title3.weight(.medium))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text(domain.attentionRequired ? "REVIEW" : "VERIFIED")
+                        Button {
+                            let target = domain.semanticElements.first(where: \.attentionRequired)
+                                ?? domain.semanticElements.first
+                            selectedElementID = target?.id
+                            addElement = target
+                        } label: {
+                            Label(
+                                domain.attentionRequired ? "REVIEW" : "VERIFIED",
+                                systemImage: domain.attentionRequired ? "exclamationmark.arrow.triangle.2.circlepath" : "checkmark.arrow.trianglehead.counterclockwise"
+                            )
                             .font(.caption.bold())
-                            .foregroundStyle(domain.attentionRequired ? Color.orange : OCHTheme.teal)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(domain.attentionRequired ? Color.orange.opacity(0.1) : OCHTheme.tealSoft, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(domain.attentionRequired ? .orange : OCHTheme.teal)
+                        .accessibilityLabel(domain.attentionRequired ? "Review and resolve domain status" : "Review or update verified domain")
+                        .accessibilityIdentifier("ResolveDomainStatus-\(domain.id)")
                     }
                     Text(lastSavedElementID == nil
                          ? "Decentralized storage contains verified data for active clinical sync windows."
@@ -760,16 +808,35 @@ private struct PatientDomainGraphView: View {
                 .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(OCHTheme.teal) }
 
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("ACTIVE SPIDER GRAPH")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Text("Select a node to inspect its current value, provenance, and owner actions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    SemanticSpiderGraphView(
+                        domain: domain,
+                        selectedElementID: $selectedElementID
+                    )
+                    .frame(height: 320)
+                }
+                .padding(16)
+                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(OCHTheme.line)
+                }
+                .accessibilityIdentifier("ActiveSpiderGraph-\(domain.id)")
+
                 Text("VERIFIED METRICS")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
 
                 ForEach(domain.semanticElements) { element in
-                    Button {
-                        selectedElementID = element.id
-                    } label: {
-                        HStack(spacing: 12) {
+                    HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(element.title)
                                     .font(.headline)
@@ -788,22 +855,28 @@ private struct PatientDomainGraphView: View {
                                     .padding(.vertical, 2)
                                     .background(OCHTheme.tealSoft, in: RoundedRectangle(cornerRadius: 4))
                             }
-                            Text(element.statusLabel)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(element.attentionRequired ? Color.orange : OCHTheme.sage)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(OCHTheme.sageSoft, in: RoundedRectangle(cornerRadius: 6))
-                        }
-                        .padding(16)
-                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(selectedElementID == element.id ? OCHTheme.teal : OCHTheme.line)
-                        }
+                            Button {
+                                selectedElementID = element.id
+                                addElement = element
+                            } label: {
+                                Label(element.statusLabel, systemImage: "arrow.right.circle.fill")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(element.attentionRequired ? .orange : OCHTheme.sage)
+                            .accessibilityLabel("Resolve \(element.title) status: \(element.statusLabel)")
+                            .accessibilityIdentifier("ResolveElementStatus-\(element.id)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("SemanticNode-\(element.id)")
+                    .padding(16)
+                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(selectedElementID == element.id ? OCHTheme.teal : OCHTheme.line)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedElementID = element.id }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("SemanticMetricRow-\(element.id)")
                 }
 
                 SemanticElementSummaryView(
@@ -1057,9 +1130,14 @@ private struct SemanticElementSummaryView: View {
                 Text(element.title)
                     .font(.title3.weight(.semibold))
                 Spacer()
-                Text(element.statusLabel)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(element.attentionRequired ? .orange : .secondary)
+                Button(action: onAdd) {
+                    Label(element.statusLabel, systemImage: "arrow.right.circle.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(element.attentionRequired ? .orange : OCHTheme.sage)
+                .accessibilityLabel("Resolve status for \(element.title)")
+                .accessibilityIdentifier("ResolveSummaryStatus-\(element.id)")
             }
 
             VStack(spacing: 10) {
@@ -1186,18 +1264,16 @@ private struct BridgeOperationsView: View {
     @ObservedObject var mobilePod: MobilePodModel
 
     var body: some View {
-        NavigationStack {
-            Form {
-                settingsSection
-                statusSection
-                podSection
-                healthMetricsSection
-                actionsSection
-                logSection
-            }
-            .navigationTitle("HK Bridge")
-            .accessibilityIdentifier("BridgeOperationsView")
+        Form {
+            settingsSection
+            statusSection
+            podSection
+            healthMetricsSection
+            actionsSection
+            logSection
         }
+        .navigationTitle("HK Bridge")
+        .accessibilityIdentifier("BridgeOperationsView")
     }
 
     private var settingsSection: some View {
@@ -1232,10 +1308,16 @@ private struct BridgeOperationsView: View {
 
     private var actionsSection: some View {
         Section("HealthKit") {
-            Button(model.authorized ? "Authorized ✓" : "Authorize HealthKit") {
-                Task { await model.authorize() }
+            Button(model.authorized ? "Authorized — Refresh Metrics" : "Authorize HealthKit") {
+                Task {
+                    if model.authorized {
+                        await model.refreshHealthMetrics()
+                    } else {
+                        await model.authorize()
+                    }
+                }
             }
-            .disabled(model.authorized)
+            .accessibilityIdentifier("ResolveHealthKitAuthorizationStatus")
             Button(model.observing ? "Stop observers" : "Start observers") {
                 model.toggleObservers()
             }

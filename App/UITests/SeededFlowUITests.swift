@@ -5,6 +5,75 @@ import XCTest
 /// wait for the sync log to show a delivered batch.  The companion shell
 /// script asserts the sensors on the PE side.
 final class SeededFlowUITests: XCTestCase {
+    func testStatusButtonsOpenResolutionPaths() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 90))
+
+        let epicStatus = app.buttons["ResolveSourceStatus-Epic"]
+        scrollUntilVisible(epicStatus, in: app, maxSwipes: 12)
+        XCTAssertTrue(epicStatus.waitForExistence(timeout: 10))
+        epicStatus.tap()
+        XCTAssertTrue(app.navigationBars["Reconcile"].waitForExistence(timeout: 10))
+
+        let appleHealthStatus = app.buttons["ResolveConnectionStatus-Apple Health"]
+        XCTAssertTrue(appleHealthStatus.waitForExistence(timeout: 10))
+        appleHealthStatus.tap()
+        XCTAssertTrue(app.navigationBars["Scan Results"].waitForExistence(timeout: 10))
+
+        app.tabBars.buttons["Overview"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+
+        let healthKitStatus = app.buttons["ResolveSourceStatus-HealthKit"]
+        scrollUntilVisible(healthKitStatus, in: app, maxSwipes: 12)
+        XCTAssertTrue(healthKitStatus.waitForExistence(timeout: 10))
+        healthKitStatus.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["BridgeOperationsView"].waitForExistence(timeout: 10))
+
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 20))
+        tapPatientDomain("vital-signs", in: app)
+        let domainStatus = app.buttons["ResolveDomainStatus-vital-signs"]
+        XCTAssertTrue(domainStatus.waitForExistence(timeout: 10))
+        domainStatus.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["SemanticElementEntryModal"].waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
+    }
+
+    func testAllElevenPillarsOpenInteractiveDetailGraphs() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 90))
+
+        let pillars = [
+            "profiles", "conditions", "medications", "allergies", "immunizations",
+            "vital-signs", "providers", "lab-results", "insurance-policies", "documents",
+            "workflow-tasks",
+        ]
+
+        for pillarID in pillars {
+            let row = app.buttons["PatientDomain-\(pillarID)"]
+            scrollUntilVisible(row, in: app, maxSwipes: 16)
+            XCTAssertTrue(row.waitForExistence(timeout: 10), "Pillar row \(pillarID) should be reachable")
+            row.tap()
+
+            XCTAssertTrue(
+                app.descendants(matching: .any)["ActiveSpiderGraph-\(pillarID)"].waitForExistence(timeout: 10),
+                "Pillar detail \(pillarID) should render its active spider graph"
+            )
+            XCTAssertTrue(
+                app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'SemanticNode-'")).firstMatch.waitForExistence(timeout: 10),
+                "Pillar detail \(pillarID) should expose selectable semantic nodes"
+            )
+
+            app.navigationBars.buttons.firstMatch.tap()
+            XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        }
+    }
+
     func testPatientMonitorNavigationSurfacesExistingScreens() throws {
         let app = XCUIApplication()
         app.launch()
