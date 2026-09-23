@@ -96,9 +96,15 @@ struct ReconciliationView: View {
                 }
 
                 Text("ACTIVE HEALTH CONNECTIONS").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                sourceCard("Apple Health", detail: "Authorized on this device", status: "READY")
-                sourceCard("Epic MyChart", detail: "Connected through the local PIM", status: "AVAILABLE")
-                sourceCard("Personal Health Pod", detail: "Client-controlled authority", status: model.ownerAccessLabel.uppercased())
+                sourceCard("Apple Health", detail: "Authorized on this device", status: "READY") {
+                    scanned = true
+                }
+                sourceCard("Epic MyChart", detail: "Connected through the local PIM", status: "AVAILABLE") {
+                    scanned = true
+                }
+                sourceCard("Personal Health Pod", detail: "Client-controlled authority", status: model.ownerAccessLabel.uppercased()) {
+                    Task { await model.refreshLocalPIMStatus() }
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("ON-DEVICE PRIVACY").font(.caption.bold()).foregroundStyle(.teal)
@@ -166,11 +172,18 @@ struct ReconciliationView: View {
         .overlay { RoundedRectangle(cornerRadius: 16).stroke(Color.teal.opacity(0.7)) }
     }
 
-    private func sourceCard(_ title: String, detail: String, status: String) -> some View {
+    private func sourceCard(_ title: String, detail: String, status: String, action: @escaping () -> Void) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) { Text(title).font(.headline); Text(detail).font(.caption).foregroundStyle(.secondary) }
             Spacer()
-            Text(status).font(.caption2.bold()).foregroundStyle(.teal).padding(.horizontal, 8).padding(.vertical, 5).background(Color.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            Button(action: action) {
+                Label(status, systemImage: "arrow.right.circle.fill")
+                    .font(.caption2.bold())
+            }
+            .buttonStyle(.bordered)
+            .tint(.teal)
+            .accessibilityLabel("Resolve \(title) status: \(status)")
+            .accessibilityIdentifier("ResolveConnectionStatus-\(title)")
         }
         .padding(16).background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -178,7 +191,20 @@ struct ReconciliationView: View {
     private func segmentRow(_ title: String, detail: String, count: Int, state: ReconcileState) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) { Text(title).font(.headline); Text(detail).font(.caption).foregroundStyle(.secondary) }
-            Spacer(); Text("\(count)").font(.title3.bold()).foregroundStyle(state.color); Text(state.label).font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button {
+                selectedDomainID = domains.first(where: { $0.state == state })?.id
+            } label: {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(count)").font(.title3.bold())
+                    Label(state.label, systemImage: "arrow.right.circle.fill").font(.caption)
+                }
+            }
+            .buttonStyle(.bordered)
+            .tint(state.color)
+            .disabled(count == 0)
+            .accessibilityLabel("Open \(state.label) resolution queue with \(count) domains")
+            .accessibilityIdentifier("ResolveSegmentStatus-\(state.rawValue)")
         }
         .padding(16).background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
         .overlay { RoundedRectangle(cornerRadius: 16).stroke(state == .conflict ? state.color : Color.clear, lineWidth: 1.5) }
