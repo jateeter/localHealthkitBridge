@@ -16,6 +16,10 @@
       "type": ["string", "null"],
       "description": "HealthKit anchored-query cursor. Absent on a first send; echoed back so the next query resumes rather than replaying."
     },
+    "resyncId": {
+      "type": ["string", "null"],
+      "description": "Set when this batch answers a resync request (POST /api/integrations/healthkit/resync). The PE marks that request fulfilled and the resolved values replace what was held for the batch's types. See INGEST_CONTRACT.md, Scope and resync."
+    },
     "samples": {
       "type": "array",
       "minItems": 1,
