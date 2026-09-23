@@ -5,6 +5,24 @@ import XCTest
 /// wait for the sync log to show a delivered batch.  The companion shell
 /// script asserts the sensors on the PE side.
 final class SeededFlowUITests: XCTestCase {
+    func testPodHydrationFallbackIsVisibleWhenNotSynchronized() throws {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-clearPodHydrationCache", "1",
+            "-localPIMBaseURL", "http://127.0.0.1:1",
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 90))
+        XCTAssertTrue(app.descendants(matching: .any)["PodSynchronizationStatus"].waitForExistence(timeout: 10))
+        XCTAssertTrue(
+            app.staticTexts.matching(
+                NSPredicate(format: "label BEGINSWITH 'Pod data has not been synchronized.'")
+            ).firstMatch.waitForExistence(timeout: 10),
+            "An unavailable PIM with no cache should show the unsynchronized fallback"
+        )
+    }
+
     func testStatusButtonsOpenResolutionPaths() throws {
         let app = XCUIApplication()
         app.launch()
