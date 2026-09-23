@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://realityengine.example.org/schemas/healthkit-resync.schema.json",
+  "title": "HealthKit resync request",
+  "description": "POST /api/integrations/healthkit/resync. A consumer (localAIStack) asks the producer, through the PE, to re-read and re-send. Not an authorization action. docs/INGEST_CONTRACT.md, Scope and resync.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bridgeId",
+    "requestedBy"
+  ],
+  "properties": {
+    "bridgeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bridgeToken": {
+      "type": "string"
+    },
+    "types": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Absent or empty: every type currently in scope."
+    },
+    "requestedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reason": {
+      "type": "string"
+    }
+  }
+}

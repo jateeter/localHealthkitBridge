@@ -1,6 +1,6 @@
 # HealthKit Ingest Contract (canonical)
 
-Last reviewed: 2026-07-13
+Last reviewed: 2026-09-23
 
 This is the single source of truth for the bridge ↔ Perception Engine ingest
 contract. All four PE runtimes (C++, Lisp, Scala, TypeScript Manager PE)
@@ -12,7 +12,9 @@ enforces cross-engine parity against the live registry.
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/integrations/healthkit/ingest` | Sample delivery (single or batch) |
-| `GET` | `/api/integrations/healthkit/status` | Bridge config echo + token mode; used by the iOS app for last-sync display |
+| `GET` | `/api/integrations/healthkit/status` | Bridge config echo + token mode + scope state and pending resync requests; used by the iOS app for last-sync display |
+| `POST` | `/api/integrations/healthkit/scope` | Authorization change: add / lock / remove types (Swift bridge, OpenCommons PIM) |
+| `POST` | `/api/integrations/healthkit/resync` | Consumer request to re-send types (localAIStack), fulfilled by an ingest carrying `resyncId` |
 
 ## Request body
 
@@ -50,6 +52,8 @@ Field rules:
 - `metadata` — optional, informational (FHIR provenance); never validated.
 - `anchorToken` — optional opaque string echoed back in the response so the
   client can confirm which sync cursor a response corresponds to.
+- `resyncId` — optional; set when the batch answers a resync request. See
+  *Scope and resync*.
 
 ## Authentication
 
@@ -122,6 +126,89 @@ assessment outrank a reading. Machines in
 regions — `HealthKitVitalsMonitor.json` (gte, input `[4320:4324]`, output
 `[4304:4308]`) classifies bridge BP readings into
 NOMINAL/HYPERTENSIVE/CRISIS.
+
+## Scope and resync
+
+*Added 2026-09-23 (localAIStack HEALTH_INTEGRATION_ROADMAP T8).* The data scope,
+meaning which HealthKit types flow, is not fixed. It changes through an
+authorization workflow tied to the owner's Solid pod (OpenCommons PIM). That
+workflow is **not built yet**, but the engines must already follow scope changes,
+so the PE is the scope authority and every consumer reads scope from it. Held
+3-of-3 across C++, LSP and Scala; the TypeScript PE conforms.
+
+Two directions, deliberately separate:
+
+- **Scope** runs from the producer to the PE. It is an authorization change.
+- **Resync** runs from a consumer, through the PE, to the producer. It is a
+  request to re-send data, not an authorization action.
+
+### `POST /api/integrations/healthkit/scope`
+
+```json
+{ "bridgeId": "healthkit-ios-bridge", "action": "add", "types": ["HKCategoryTypeIdentifierSleepAnalysis"], "source": "pim", "reason": "owner granted" }
+```
+
+Authenticated like ingest. Schema: `schemas/healthkit-scope.schema.json`.
+
+**Open until declared.** A bridge that has never sent a scope message behaves
+exactly as before, and every mapped type is accepted. Its first scope message
+switches it to **explicit scope**, after which only `active` types are ingested.
+
+| `action` | Resulting type state | Effect on ingest | Effect on held values |
+|---|---|---|---|
+| `add` | `active` | accepted | none |
+| `lock` | `locked` | refused, `reason: "locked"` | none; existing values stand |
+| `remove` | `removed` | refused, `reason: "not-in-scope"` | the sensor sources the type wrote are removed from the PE: **absent, not zero** |
+
+In explicit scope, a type that has never been added is also refused
+`not-in-scope`. A refused sample is reported in `unmapped[]` with its `reason`,
+and the ingest status codes apply unchanged (`207` partial, `400` all refused).
+
+> **Provisional.** The Solid pod authorization workflow will define its own
+> meaning for add/lock/remove, which is expected to differ from the above. The
+> actions are a table so they can be changed in one place per runtime.
+
+Response `200`:
+`{ "success": true, "bridgeId", "action", "generation", "applied": [ { "type", "state", "previous" } ] }`.
+`previous` is `null` for a type seen for the first time. `generation` increases by
+one on every accepted scope change. `400` for an unknown action or empty `types`;
+`401` for bad credentials. Every change broadcasts
+`{ "type": "healthkit.scope.changed", "bridgeId", "action", "types", "generation" }`.
+
+### `POST /api/integrations/healthkit/resync`
+
+```json
+{ "bridgeId": "healthkit-ios-bridge", "types": ["HKCategoryTypeIdentifierSleepAnalysis"], "requestedBy": "localAIStack", "reason": "health machine re-registered" }
+```
+
+Authenticated like ingest. Schema: `schemas/healthkit-resync.schema.json`.
+`types` absent or empty means every type the bridge has in scope (under open scope,
+every type the PE has seen from that bridge). A `locked` or `removed` type cannot
+be resynced and is returned in `refused[]`.
+
+Response `202`:
+`{ "success": true, "request": { "id", "bridgeId", "types", "requestedBy", "requestedAt", "state": "pending" }, "refused": [ { "type", "reason" } ] }`.
+When every requested type is refused, the response is `409` with the same body
+and `success: false`. A resync changes no scope and no generation.
+
+**Fulfilment.** The producer finds pending requests on `/status`. It re-reads and
+sends an ingest batch carrying `resyncId: <request id>`. The PE marks the request
+`fulfilled` (`fulfilledAt`) and echoes `resyncId` in the ingest response. The
+values it resolves replace what was held for those types. Requests are kept per
+bridge, newest last, capped at 32.
+
+### Scope on `GET /status`
+
+```json
+"scope": {
+  "declared": true,
+  "generation": 3,
+  "types": { "HKCategoryTypeIdentifierSleepAnalysis": { "state": "active", "source": "pim", "updatedAt": 1790000000000 } },
+  "resyncRequests": [ { "id": "...", "types": [...], "requestedBy": "localAIStack", "requestedAt": 0, "state": "pending", "fulfilledAt": null } ]
+}
+```
+
+`declared: false` with an empty `types` map means open scope.
 
 ## Response
 

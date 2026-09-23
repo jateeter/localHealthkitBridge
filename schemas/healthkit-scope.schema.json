@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://realityengine.example.org/schemas/healthkit-scope.schema.json",
+  "title": "HealthKit scope change",
+  "description": "POST /api/integrations/healthkit/scope. An authorization change from the Swift bridge or the OpenCommons PIM (Solid pod) workflow. docs/INGEST_CONTRACT.md, Scope and resync, is the prose source of truth. The add/lock/remove semantics are provisional until the pod authorization workflow defines them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bridgeId",
+    "action",
+    "types"
+  ],
+  "properties": {
+    "bridgeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bridgeToken": {
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "add",
+        "lock",
+        "remove"
+      ]
+    },
+    "types": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "HK type identifiers."
+    },
+    "source": {
+      "type": "string",
+      "description": "Who changed the authorization: swift, pim, or another producer."
+    },
+    "reason": {
+      "type": "string"
+    }
+  }
+}
