@@ -63,6 +63,21 @@ struct StagedPatientDatum: Identifiable, Codable, Equatable {
     let stagedAt: Date
 }
 
+struct PodResidentRecord: Identifiable, Codable, Equatable, Sendable {
+    let id: String
+    let domainID: String
+    let title: String
+    let detail: String
+    let status: String?
+    let resourceURL: String?
+    let payload: Data
+}
+
+private struct PodHydrationCache: Codable {
+    let synchronizedAt: Date
+    let recordsByDomain: [String: [PodResidentRecord]]
+}
+
 struct DailyPlannedActivity: Identifiable, Equatable {
     let id: String
     let title: String
@@ -94,6 +109,10 @@ final class MobilePodModel: ObservableObject {
     @Published private(set) var containers: [MobileSolidManagedContainer]
     @Published private(set) var lastStatusMessage: String
     @Published private(set) var stagedData: [StagedPatientDatum]
+    @Published private(set) var residentRecordsByDomain: [String: [PodResidentRecord]]
+    @Published private(set) var isHydratingPodData = false
+    @Published private(set) var lastHydratedAt: Date?
+    @Published private(set) var podHydrationMessage: String
 
     let managedDomains = OpenCommonsHealthPodProfile.managedDomains
     let wellnessAxisDomainIDs = ["vital-signs", "lab-results", "medications", "conditions", "allergies", "immunizations"]
@@ -102,11 +121,20 @@ final class MobilePodModel: ObservableObject {
     private let defaults = UserDefaults.standard
 
     init() {
+        let environment = ProcessInfo.processInfo.environment
+        let localPIMOverride = launchArgumentValue(for: "localPIMBaseURL")
+            ?? environment["LOCAL_PIM_BASE_URL"]
+        let resolvedLocalPIMBaseURL = localPIMOverride
+            ?? defaults.string(forKey: "mobileSolid.localPIMBaseURL")
+            ?? Self.defaultLocalPIMBaseURL
         issuerURL = defaults.string(forKey: "mobileSolid.issuerURL") ?? Self.defaultIssuerURL
         storageIRI = defaults.string(forKey: "mobileSolid.storageIRI") ?? Self.defaultOwnerStorageIRI
         pimRootPath = defaults.string(forKey: "mobileSolid.pimRootPath") ?? "health-pim/"
         redirectURI = defaults.string(forKey: "mobileSolid.redirectURI") ?? "opencommons-health:/solid/callback"
-        localPIMBaseURL = defaults.string(forKey: "mobileSolid.localPIMBaseURL") ?? Self.defaultLocalPIMBaseURL
+        localPIMBaseURL = resolvedLocalPIMBaseURL
+        if localPIMOverride != nil {
+            defaults.set(resolvedLocalPIMBaseURL, forKey: "mobileSolid.localPIMBaseURL")
+        }
         allowInsecureLocalHTTP = defaults.object(forKey: "mobileSolid.allowInsecureLocalHTTP") as? Bool ?? true
         session = MobileSolidSessionSnapshot(
             authenticated: false,
@@ -118,6 +146,15 @@ final class MobilePodModel: ObservableObject {
         containers = OpenCommonsHealthPodProfile.healthKitContainers
         lastStatusMessage = "Configured for the localhost OpenCommons PIM owner Pod."
         stagedData = Self.loadStagedData(from: defaults)
+        if launchArgumentBool(for: "clearPodHydrationCache"), let cacheURL = Self.hydrationCacheURL {
+            try? FileManager.default.removeItem(at: cacheURL)
+        }
+        let cachedHydration = Self.loadHydrationCache()
+        residentRecordsByDomain = cachedHydration?.recordsByDomain ?? [:]
+        lastHydratedAt = cachedHydration?.synchronizedAt
+        podHydrationMessage = cachedHydration.map { cache in
+            "Showing Pod data synchronized \(Self.relativeDateFormatter.localizedString(for: cache.synchronizedAt, relativeTo: Date()))."
+        } ?? "Pod data has not been synchronized."
     }
 
     var configuration: MobileSolidConfiguration {
@@ -142,6 +179,18 @@ final class MobilePodModel: ObservableObject {
         }
         if pending == 0 && conflicts == 0 { return "No pending mirrors" }
         return "\(pending) pending · \(conflicts) conflict\(conflicts == 1 ? "" : "s")"
+    }
+
+    var residentRecordCount: Int {
+        residentRecordsByDomain.values.reduce(0) { $0 + $1.count }
+    }
+
+    var hasSynchronizedPodData: Bool {
+        lastHydratedAt != nil
+    }
+
+    func residentRecords(for domainID: String) -> [PodResidentRecord] {
+        residentRecordsByDomain[domainID] ?? []
     }
 
     var termsURL: URL? {
@@ -290,7 +339,8 @@ final class MobilePodModel: ObservableObject {
                     dpopEnabled: true,
                     lastError: "PIM reports authenticated owner Pod access."
                 )
-                lastStatusMessage = "Local PIM/CSS owner Pod status loaded."
+                lastStatusMessage = "Local PIM/CSS owner Pod status loaded. Synchronizing resident data."
+                await hydratePodData(from: baseURL)
             } else {
                 session = MobileSolidSessionSnapshot(
                     authenticated: false,
@@ -300,6 +350,7 @@ final class MobilePodModel: ObservableObject {
                     lastError: "PIM is reachable but owner Pod access is not confirmed."
                 )
                 lastStatusMessage = "Local PIM status loaded without confirmed Pod access."
+                noteUnsynchronizedData(reason: "Pod access is not confirmed.")
             }
         } catch {
             session = MobileSolidSessionSnapshot(
@@ -310,6 +361,66 @@ final class MobilePodModel: ObservableObject {
                 lastError: "Local preview: \(error.localizedDescription)"
             )
             lastStatusMessage = "Local PIM/CSS status refresh failed. Check the base URL for simulator, LAN, or device review."
+            noteUnsynchronizedData(reason: "The local PIM could not be reached.")
+        }
+    }
+
+    private func hydratePodData(from baseURL: URL) async {
+        isHydratingPodData = true
+        podHydrationMessage = "Synchronizing Pod resident data…"
+        defer { isHydratingPodData = false }
+
+        let domainIDs = managedDomains.map(\.apiName)
+        let results = await withTaskGroup(of: PodDomainHydrationResult.self) { group in
+            for domainID in domainIDs {
+                group.addTask {
+                    await Self.fetchResidentRecords(domainID: domainID, baseURL: baseURL)
+                }
+            }
+
+            var collected: [PodDomainHydrationResult] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected
+        }
+
+        var nextRecords = residentRecordsByDomain
+        var failedDomains: [String] = []
+        var successfulDomains = 0
+        for result in results {
+            if let records = result.records {
+                nextRecords[result.domainID] = records
+                successfulDomains += 1
+            } else {
+                failedDomains.append(result.domainID)
+            }
+        }
+
+        guard successfulDomains > 0 else {
+            noteUnsynchronizedData(reason: "No Pod domain could be downloaded.")
+            return
+        }
+
+        let synchronizedAt = Date()
+        residentRecordsByDomain = nextRecords
+        lastHydratedAt = synchronizedAt
+        Self.saveHydrationCache(PodHydrationCache(synchronizedAt: synchronizedAt, recordsByDomain: nextRecords))
+
+        if failedDomains.isEmpty {
+            podHydrationMessage = "Synchronized \(residentRecordCount) Pod record\(residentRecordCount == 1 ? "" : "s") across all 11 domains."
+            lastStatusMessage = "Pod resident data synchronized to this iPhone."
+        } else {
+            podHydrationMessage = "Partially synchronized \(residentRecordCount) Pod records. Using the last saved snapshot for: \(failedDomains.sorted().joined(separator: ", "))."
+            lastStatusMessage = "Pod synchronization completed with \(failedDomains.count) domain failure\(failedDomains.count == 1 ? "" : "s")."
+        }
+    }
+
+    private func noteUnsynchronizedData(reason: String) {
+        if let lastHydratedAt {
+            podHydrationMessage = "\(reason) Showing Pod data synchronized \(Self.relativeDateFormatter.localizedString(for: lastHydratedAt, relativeTo: Date()))."
+        } else {
+            podHydrationMessage = "Pod data has not been synchronized. \(reason)"
         }
     }
 
@@ -394,17 +505,7 @@ final class MobilePodModel: ObservableObject {
 
     private func itemCount(for apiName: String) -> Int {
         let stagedCount = stagedData.filter { $0.domainID == apiName }.count
-        switch apiName {
-        case "profiles":
-            return (session.authenticated ? 1 : 0) + stagedCount
-        case "vital-signs":
-            return containers
-                .filter { [.observation, .bloodPressure].contains($0.resourceKind) }
-                .map(\.itemCount)
-                .reduce(0, +) + stagedCount
-        default:
-            return stagedCount
-        }
+        return residentRecords(for: apiName).count + stagedCount
     }
 
     private func sourceLabel(for apiName: String) -> String {
@@ -588,6 +689,117 @@ final class MobilePodModel: ObservableObject {
         }
         return decoded
     }
+
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter
+    }()
+
+    private static var hydrationCacheURL: URL? {
+        guard let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return applicationSupport
+            .appendingPathComponent("OpenCommonsHealth", isDirectory: true)
+            .appendingPathComponent("pod-hydration-cache.json", isDirectory: false)
+    }
+
+    private static func loadHydrationCache() -> PodHydrationCache? {
+        guard let url = hydrationCacheURL,
+              let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(PodHydrationCache.self, from: data)
+    }
+
+    private static func saveHydrationCache(_ cache: PodHydrationCache) {
+        guard let url = hydrationCacheURL,
+              let data = try? JSONEncoder().encode(cache) else {
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+        } catch {
+            // The in-memory snapshot remains usable for this session. The UI
+            // intentionally reports synchronization, not persistence details.
+        }
+    }
+
+    private nonisolated static func fetchResidentRecords(domainID: String, baseURL: URL) async -> PodDomainHydrationResult {
+        guard let encodedDomain = domainID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let resourceURL = URL(string: "/api/resources/\(encodedDomain)", relativeTo: baseURL)?.absoluteURL else {
+            return PodDomainHydrationResult(domainID: domainID, records: nil)
+        }
+
+        do {
+            var request = URLRequest(url: resourceURL)
+            request.timeoutInterval = 15
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                return PodDomainHydrationResult(domainID: domainID, records: nil)
+            }
+            let root = try JSONSerialization.jsonObject(with: data)
+            guard let envelope = root as? [String: Any],
+                  let objects = envelope["data"] as? [[String: Any]] else {
+                return PodDomainHydrationResult(domainID: domainID, records: nil)
+            }
+            let records = objects.enumerated().compactMap { index, object in
+                residentRecord(domainID: domainID, object: object, index: index)
+            }
+            return PodDomainHydrationResult(domainID: domainID, records: records)
+        } catch {
+            return PodDomainHydrationResult(domainID: domainID, records: nil)
+        }
+    }
+
+    private nonisolated static func residentRecord(domainID: String, object: [String: Any], index: Int) -> PodResidentRecord? {
+        guard JSONSerialization.isValidJSONObject(object),
+              let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            return nil
+        }
+        let resourceURL = stringValue(in: object, keys: ["url", "id", "identifier"])
+        let title = stringValue(in: object, keys: ["title", "name", "display", "code", "type"])
+            ?? "\(domainID.replacingOccurrences(of: "-", with: " ").capitalized) record \(index + 1)"
+        let detail = stringValue(in: object, keys: ["description", "summary", "text", "note", "value"])
+            ?? resourceURL
+            ?? "Owner-managed Pod record"
+        let status = stringValue(in: object, keys: ["status", "clinicalStatus", "verificationStatus"])
+        return PodResidentRecord(
+            id: resourceURL ?? "\(domainID)-\(index)-\(payload.base64EncodedString().hashValue)",
+            domainID: domainID,
+            title: title,
+            detail: detail,
+            status: status,
+            resourceURL: resourceURL,
+            payload: payload
+        )
+    }
+
+    private nonisolated static func stringValue(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let value = object[key] else { continue }
+            if let string = value as? String, !string.isEmpty { return string }
+            if let number = value as? NSNumber { return number.stringValue }
+            if let nested = value as? [String: Any],
+               let nestedString = stringValue(in: nested, keys: ["display", "text", "value", "code", "reference"]) {
+                return nestedString
+            }
+            if let values = value as? [[String: Any]],
+               let first = values.first,
+               let nestedString = stringValue(in: first, keys: ["display", "text", "value", "code", "reference"]) {
+                return nestedString
+            }
+        }
+        return nil
+    }
+}
+
+private struct PodDomainHydrationResult: Sendable {
+    let domainID: String
+    let records: [PodResidentRecord]?
 }
 
 private struct LocalPIMHealthStatus: Decodable {

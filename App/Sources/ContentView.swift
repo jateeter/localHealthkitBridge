@@ -88,6 +88,7 @@ private struct PatientMonitorView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     overviewHeader
+                    podSynchronizationSection
                     overviewRadarSection
                     clinicalPillarsSection
                     sourceSection
@@ -162,6 +163,43 @@ private struct PatientMonitorView: View {
             .frame(height: 360)
             .frame(maxWidth: .infinity)
             .accessibilityIdentifier("WellnessSpiderGraph")
+    }
+
+    private var podSynchronizationSection: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if mobilePod.isHydratingPodData {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: mobilePod.hasSynchronizedPodData ? "checkmark.icloud.fill" : "icloud.slash.fill")
+                    .foregroundStyle(mobilePod.hasSynchronizedPodData ? OCHTheme.teal : Color.orange)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(mobilePod.isHydratingPodData ? "Synchronizing Pod data" : "Pod resident data")
+                    .font(.headline)
+                Text(mobilePod.podHydrationMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button {
+                Task { await mobilePod.refreshLocalPIMStatus() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .disabled(mobilePod.isHydratingPodData)
+            .accessibilityLabel("Synchronize Pod resident data")
+            .accessibilityIdentifier("SynchronizePodDataButton")
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(mobilePod.hasSynchronizedPodData ? OCHTheme.teal : Color.orange.opacity(0.7))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("PodSynchronizationStatus")
     }
 
     private func pillarSubtitle(for domainID: String) -> String {
@@ -709,6 +747,7 @@ private struct PatientDomainGraphView: View {
     @State private var selectedElementID: PatientSemanticElement.ID?
     @State private var addElement: PatientSemanticElement?
     @State private var lastSavedElementID: PatientSemanticElement.ID?
+    @State private var sharingRecord: PodResidentRecord?
 
     private var domain: PatientMonitorDomain {
         mobilePod.patientMonitorDomains.first(where: { $0.id == domainID }) ?? PatientMonitorDomain(
@@ -808,6 +847,8 @@ private struct PatientDomainGraphView: View {
                 .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(OCHTheme.teal) }
 
+                podResidentRecordsSection
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text("ACTIVE SPIDER GRAPH")
                         .font(.caption.weight(.medium))
@@ -901,6 +942,160 @@ private struct PatientDomainGraphView: View {
                 mobilePod: mobilePod,
                 onSaved: { lastSavedElementID = $0 }
             )
+        }
+        .sheet(item: $sharingRecord) { record in
+            PodDatumSharingView(record: record, podConnected: mobilePod.session.authenticated)
+        }
+    }
+
+    private var podResidentRecordsSection: some View {
+        let records = mobilePod.residentRecords(for: domain.id)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("POD RESIDENT RECORDS")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(records.count)")
+                    .font(.caption.bold())
+                    .foregroundStyle(OCHTheme.teal)
+            }
+
+            if records.isEmpty {
+                Label(
+                    mobilePod.hasSynchronizedPodData
+                        ? "No records are currently stored in this Pod domain."
+                        : "Pod data has not been synchronized.",
+                    systemImage: mobilePod.hasSynchronizedPodData ? "tray" : "icloud.slash"
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            } else {
+                ForEach(records) { record in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(record.title)
+                                .font(.headline)
+                            Spacer()
+                            if let status = record.status {
+                                Text(status.uppercased())
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(OCHTheme.sage)
+                            }
+                        }
+                        Text(record.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                        if let resourceURL = record.resourceURL {
+                            Text(resourceURL)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                        Divider()
+                        HStack {
+                            Label("POD authentication", systemImage: "lock.shield.fill")
+                                .font(.caption2)
+                                .foregroundStyle(mobilePod.session.authenticated ? OCHTheme.teal : .secondary)
+                            Spacer()
+                            Button("Sharing") { sharingRecord = record }
+                                .buttonStyle(.borderedProminent)
+                                .buttonBorderShape(.capsule)
+                                .tint(.blue)
+                                .controlSize(.small)
+                                .accessibilityLabel("Sharing settings for \(record.title)")
+                                .accessibilityIdentifier("SharePodRecord-\(record.id)")
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+
+            Text(mobilePod.podHydrationMessage)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(OCHTheme.line)
+        }
+        .accessibilityIdentifier("PodResidentRecords-\(domain.id)")
+    }
+}
+
+private struct PodDatumSharingView: View {
+    let record: PodResidentRecord
+    let podConnected: Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var recipient = ""
+    @State private var purpose = "Care coordination"
+    @State private var duration = "24 hours"
+    @State private var consent = false
+    @State private var prepared = false
+
+    private let purposes = ["Care coordination", "Clinical review", "Personal support", "Approved research"]
+    private let durations = ["24 hours", "7 days", "30 days", "Until revoked"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(record.title).font(.headline)
+                    Text(record.detail).font(.caption).foregroundStyle(.secondary)
+                } header: { Text("Datum") }
+
+                Section {
+                    Label(
+                        podConnected ? "Pod authentication attached" : "Pod authentication required",
+                        systemImage: podConnected ? "checkmark.shield.fill" : "exclamationmark.shield.fill"
+                    )
+                    .foregroundStyle(podConnected ? OCHTheme.teal : .orange)
+                    Text(podConnected
+                         ? "This access request stays bound to the authenticated owner and this Pod datum."
+                         : "Reconnect the owner Pod before preparing an access grant.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: { Text("Owner authorization") }
+
+                Section {
+                    TextField("Recipient or care team", text: $recipient)
+                    Picker("Purpose", selection: $purpose) {
+                        ForEach(purposes, id: \.self) { Text($0) }
+                    }
+                    Picker("Access duration", selection: $duration) {
+                        ForEach(durations, id: \.self) { Text($0) }
+                    }
+                    Toggle("I approve this datum and purpose", isOn: $consent)
+                } header: { Text("Sharing grant") }
+
+                if prepared {
+                    Section {
+                        Label("Access grant prepared", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(OCHTheme.teal)
+                        Text("No data leaves the Pod until the authenticated recipient accepts the grant.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    Button("Prepare access grant") { prepared = true }
+                        .disabled(!podConnected || recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !consent)
+                        .accessibilityIdentifier("PreparePodSharingGrant")
+                }
+            }
+            .navigationTitle("Sharing")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
 }

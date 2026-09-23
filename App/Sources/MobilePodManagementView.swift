@@ -3,11 +3,13 @@ import MobileSolidCompatModel
 
 struct MobilePodManagementView: View {
     @ObservedObject var model: MobilePodModel
+    @State private var sharingRulesExpanded = false
 
     var body: some View {
         Form {
             connectionSection
             ownerStatusSection
+            sharingSection
             managedDomainsSection
             containersSection
             legalSection
@@ -58,9 +60,22 @@ struct MobilePodManagementView: View {
             LabeledContent("Owner access", value: model.ownerAccessLabel)
             LabeledContent("DPoP", value: model.session.dpopEnabled ? "Enabled" : "Disabled")
             LabeledContent("Mirror queue", value: model.mirrorSummary)
+            LabeledContent("Resident records", value: "\(model.residentRecordCount)")
             if let storageIRI = model.session.storageIRI {
                 LabeledContent("Session storage", value: storageIRI)
             }
+            HStack(alignment: .top, spacing: 10) {
+                if model.isHydratingPodData {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: model.hasSynchronizedPodData ? "checkmark.icloud.fill" : "icloud.slash.fill")
+                        .foregroundStyle(model.hasSynchronizedPodData ? .green : .orange)
+                }
+                Text(model.podHydrationMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityIdentifier("PodHydrationStatus")
             if let lastError = model.session.lastError {
                 Text(lastError)
                     .font(.caption)
@@ -93,6 +108,34 @@ struct MobilePodManagementView: View {
             Text("OpenCommons Health domains")
         } footer: {
             Text("These match the 11 browser PIM domains managed in the localhost/docker Solid Pod.")
+        }
+    }
+
+    private var sharingSection: some View {
+        Section {
+            Label(
+                model.session.authenticated ? "Pod authentication attached" : "Pod authentication required",
+                systemImage: model.session.authenticated ? "checkmark.shield.fill" : "exclamationmark.shield.fill"
+            )
+            .foregroundStyle(model.session.authenticated ? .green : .orange)
+            LabeledContent("Default access", value: "Owner only")
+            LabeledContent("Per-datum release", value: "Explicit consent")
+            DisclosureGroup("Default sharing rules per pillar", isExpanded: $sharingRulesExpanded) {
+                ForEach(model.managedDomains) { domain in
+                    HStack {
+                        Text(domain.displayName)
+                        Spacer()
+                        Text("Owner only")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .accessibilityIdentifier("PodSharingRules")
+        } header: {
+            Text("Permissions & sharing")
+        } footer: {
+            Text("Each datum exposes its own Sharing button. A recipient, purpose, duration, and owner consent are required before an access grant is prepared.")
         }
     }
 
