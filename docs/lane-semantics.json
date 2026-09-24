@@ -14,7 +14,13 @@
     "canonical unit of every lane position is UCUM `1` — dimensionless — and",
     "conversionPolicy is `prohibited`: rescaling a value that has already been",
     "mapped onto a fixed range is not a unit conversion, it is a second",
-    "normalisation against a range the consumer does not know."
+    "normalisation against a range the consumer does not know.",
+    "",
+    "absentValue (per axis, optional): the normalised value that means 'not",
+    "measured' for that axis. A consumer must not grade or threshold an axis at",
+    "its absentValue; the rest of the family is unaffected. Declared 2026-09-24",
+    "for the blood-pressure family's pulse, after a manual Health entry with no",
+    "heart rate was graded downstream as a pulse of 0 bpm."
   ],
   "schemaVersion": "1.0.0",
   "provider": "HealthKit",
@@ -37,7 +43,8 @@
       "axes": [
         { "index": 0, "name": "systolic_normalized",  "sourceUnit": "mm[Hg]", "sourceRange": [0, 200], "canonicalUcum": "1", "scaleType": "ratio", "conversionPolicy": "prohibited" },
         { "index": 1, "name": "diastolic_normalized", "sourceUnit": "mm[Hg]", "sourceRange": [0, 120], "canonicalUcum": "1", "scaleType": "ratio", "conversionPolicy": "prohibited" },
-        { "index": 2, "name": "pulse_normalized",     "sourceUnit": "/min",   "sourceRange": [0, 200], "canonicalUcum": "1", "scaleType": "ratio", "conversionPolicy": "prohibited" },
+        { "index": 2, "name": "pulse_normalized",     "sourceUnit": "/min",   "sourceRange": [0, 200], "canonicalUcum": "1", "scaleType": "ratio", "conversionPolicy": "prohibited",
+          "absentValue": 0, "absentNote": "0 means not measured, not 0 bpm. A blood-pressure entry carries no heart rate (a manual Health entry never does); when no heart-rate sample falls within +/-5 min of the correlation the bridge sends 0 here. Confidence (axis 3) covers the family and stays 1.0 for a valid systolic/diastolic." },
         { "index": 3, "name": "confidence",           "sourceUnit": "1",      "sourceRange": [0, 1],   "canonicalUcum": "1", "scaleType": "ratio", "conversionPolicy": "prohibited" }
       ]
     },
