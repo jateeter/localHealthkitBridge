@@ -28,10 +28,13 @@ public actor IngestClient {
         self.sleeper = sleeper
     }
 
-    public func ingest(samples: [IngestSample], anchorToken: String? = nil) async throws -> IngestResult {
+    public func ingest(
+        samples: [IngestSample], anchorToken: String? = nil, resyncId: String? = nil
+    ) async throws -> IngestResult {
         let body = IngestRequestBody(
             bridgeId: configuration.bridgeId,
             anchorToken: anchorToken,
+            resyncId: resyncId,
             samples: samples
         )
         var request = URLRequest(url: endpoint("/api/integrations/healthkit/ingest"))
@@ -83,6 +86,9 @@ public actor IngestClient {
     public func status() async throws -> BridgeStatus {
         var request = URLRequest(url: endpoint("/api/integrations/healthkit/status"))
         request.httpMethod = "GET"
+        if let token = configuration.bridgeToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw BridgeError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? -1)

@@ -32,6 +32,10 @@ public actor BridgeCoordinator {
     private var watchdogStartedAt: Date?
     private var silenceThreshold: TimeInterval = 30 * 60
     private var silenceAlerted = false
+    /// Resync requests this bridge has already answered: `/status` keeps the
+    /// request after fulfilment (state flips to `fulfilled`), and this guards
+    /// the window before a re-read sees the flip.
+    private var fulfilledResyncIds: Set<String> = []
 
     public init(configuration: BridgeConfiguration, sessionConfiguration: URLSessionConfiguration = .ephemeral) {
         self.client = IngestClient(configuration: configuration, sessionConfiguration: sessionConfiguration)
@@ -116,6 +120,48 @@ public actor BridgeCoordinator {
 
     public func fetchStatus() async -> BridgeStatus? {
         try? await client.status()
+    }
+
+    /// Fulfil pending resync requests (INGEST_CONTRACT.md, "Scope and resync").
+    ///
+    /// A consumer (localAIStack, an engine) asks through the PE for this bridge
+    /// to re-send; the bridge finds the request on `/status`, re-reads the
+    /// families, and sends one batch carrying `resyncId`. The PE marks it
+    /// fulfilled. `currentSamples` re-reads HealthKit fresh (no anchors); it is
+    /// injected so this is testable without HealthKit. Returns the ids fulfilled.
+    @discardableResult
+    public func fulfilPendingResyncs(
+        currentSamples: @Sendable () async -> [IngestSample]
+    ) async -> [String] {
+        guard let status = try? await client.status(),
+              let requests = status.scope?.resyncRequests else { return [] }
+        let bridgeId = client.configuration.bridgeId
+        let pending = requests.filter {
+            $0.isPending && ($0.bridgeId == nil || $0.bridgeId == bridgeId) && !fulfilledResyncIds.contains($0.id)
+        }
+        guard !pending.isEmpty else { return [] }
+        let samples = await currentSamples()
+        var done: [String] = []
+        for request in pending {
+            let wanted = Set(request.types)
+            let batch = wanted.isEmpty ? samples : samples.filter { wanted.contains($0.type) }
+            guard !batch.isEmpty else {
+                emit(.init(kind: .info, message: "Resync \(request.id): nothing to send for \(request.types.joined(separator: ", "))"))
+                continue
+            }
+            do {
+                let result = try await client.ingest(samples: batch, anchorToken: "resync-\(request.id)", resyncId: request.id)
+                fulfilledResyncIds.insert(request.id)
+                lastSync = Date()
+                silenceAlerted = false
+                done.append(request.id)
+                let by = request.requestedBy.map { " for \($0)" } ?? ""
+                emit(.init(kind: .delivered, message: "Resync \(request.id)\(by): HTTP \(result.statusCode), \(batch.count) sample(s)"))
+            } catch {
+                emit(.init(kind: .failed, message: "Resync \(request.id) failed: \(error)"))
+            }
+        }
+        return done
     }
 
     private func emit(_ event: SyncEvent) {
