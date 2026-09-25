@@ -1,7 +1,9 @@
 # Mirror contract: HealthKit bridge → PIM → owner POD
 
-Status: **proposed, 2026-09-25.** *Settled* parts cite their source. *Proposed*
-parts await the decisions listed at the end. Nothing here is implemented yet.
+Status: **decided 2026-09-25, implementation in progress.** The owner decided
+D2, D2a, D2b and the API surface (see *Decisions*). *Settled* parts cite their
+source. Parts still marked *proposed* are implementation detail that the PRs
+implementing them may refine.
 
 This is the single source of truth for **how** device-side HealthKit data
 reaches the authoritative POD. **Whether** that is the rule is decided once, in
@@ -38,29 +40,43 @@ iPhone bridge app ──HTTP──▶ PIM  ──(PIM's own Solid session)──
 `MOBILE_SOLID_PHASE0_COMPATIBILITY.md` are **not on the mirror path**. The Pod
 tab shows PIM's status instead of holding its own session.
 
-## 2. What maps today, with no PIM change
+## 2. Which metrics: all of them, from a catalog
 
-The PIM domain is **`vital-signs`**: `POST /api/resources/vital-signs`, validated
-by `vitalSigns.shex`. It accepts `blood-pressure` (with `{systolic, diastolic}`)
-and `heart-rate`, among others.
+*Decided (D2b):* **every health metric** the bridge can read goes to the PIM, not
+just the three families PE ingest uses.
 
-| Bridge family | HealthKit source | PIM `vital-signs` entity |
-|---|---|---|
-| Blood pressure | `HKCorrelationTypeIdentifierBloodPressure` (systolic + diastolic) | `{ code: "blood-pressure", value: { systolic, diastolic }, unit: "mmHg", effectiveDateTime, loincCode: 85354-9 }` |
-| Pulse | the family's heart-rate component | `{ code: "heart-rate", value: <bpm>, unit: "/min", effectiveDateTime, loincCode: 8867-4 }` |
-| Exercise | workout, steps, active energy, exercise time | **no vital-sign code** (D2b) |
-| Sleep | `HKCategoryTypeIdentifierSleepAnalysis` | **no vital-sign code** (D2b) |
+PIM holds a **metric catalog**: data, not code. Each entry maps one HealthKit
+type identifier to where and how PIM stores it:
 
-- Values are the **raw measurements** with their units. The `[0,1]`
-  normalization is a PE concern (`INGEST_CONTRACT.md`), so the mirror takes each
-  `HKSample` **before** normalization.
-- `effectiveDateTime` is the sample's `startDate` in ISO 8601.
+| Field | Meaning |
+|---|---|
+| `metric` | the HealthKit type identifier (`HKQuantityTypeIdentifierHeartRate`, `HKCategoryTypeIdentifierSleepAnalysis`, `HKCorrelationTypeIdentifierBloodPressure`, …) |
+| `domain` | `vital-signs` when PIM already has a vital-sign code for it; otherwise the new generic **`health-observations`** domain |
+| `code`, `loinc`, `unit` | the PIM code, the LOINC code and the UCUM unit it is stored with |
+| `category` | `vital-signs`, `activity`, `body`, `sleep`, `nutrition`, `respiratory`, `mindfulness`, … |
+| `valueShape` | `scalar`, `components` (e.g. systolic/diastolic), or `interval` (sleep stages, workouts) |
+
+- **The nine vital-sign metrics** (blood pressure, heart rate, body weight and
+  height, BMI, respiratory rate, body temperature, oxygen saturation, blood
+  glucose) land in the existing `vital-signs` domain, so they reconcile with
+  Epic's.
+- **Everything else** (steps, active and basal energy, exercise time,
+  distance, sleep analysis, workouts, heart-rate variability, resting heart
+  rate, body fat, mindful minutes, …) lands in **`health-observations`**. That is
+  a generic FHIR-`Observation`-shaped domain with its own ShEx shape, so adding
+  a metric is a catalog entry, not a schema change.
+- A metric the catalog does not know is **reported, never dropped silently**.
+
+Values are the **raw measurements** with their units. The `[0,1]` normalization
+is a PE concern (`INGEST_CONTRACT.md`), so the mirror takes each `HKSample`
+**before** normalization.
 
 ## 3. Identity, and why duplicates cannot occur
 
 *Settled by PIM's existing reconciliation.* PIM already identifies a vital sign by
 `code::effectiveDateTime` (`reconciliationKey`, used by the Epic import). The
-mirror uses the **same key**. So a HealthKit reading and an Epic reading of the
+mirror uses the **same key** for `vital-signs`, and `code::effectiveStart` for
+`health-observations`. So a HealthKit reading and an Epic reading of the
 same measurement at the same instant **reconcile** rather than duplicate, and
 re-sending a sample is a no-op.
 
@@ -79,9 +95,9 @@ reconciliation view for the owner. `MobilePodModel`'s states map one to one:
 **A device reading is not durable until PIM reports it `mirrored`.** Nothing
 downstream reads the device copy as authoritative.
 
-## 4. The API surface (proposed)
+## 4. The API surface (decided: preview and apply)
 
-**Recommended: a HealthKit import that mirrors the Epic one.** PIM already
+**Decided: a HealthKit import that mirrors the Epic one.** PIM already
 imports an external source this way (`/api/integrations/epic/sync/preview` and
 `…/sync/apply`), built from `reconcile()` and `summarizeReconciliation()`. The
 same shape for HealthKit:
@@ -95,10 +111,8 @@ same shape for HealthKit:
 This keeps the mapping and matching in **one place, PIM**, beside the Epic code
 it reuses. The bridge sends readings and records the outcome per sample.
 
-**Works today without new routes:** the bridge can `GET /api/resources/vital-signs`,
-apply the same key itself, and `POST` only the new readings. That is acceptable
-for a first slice, but it duplicates PIM's matching logic on the device and reads
-the whole domain on every sync. So it is the fallback, not the target.
+(A no-new-routes fallback was considered and not chosen: it would duplicate
+PIM's matching logic on the device and read the whole domain on every sync.)
 
 ## 5. PIM changes needed (proposed)
 
@@ -130,12 +144,49 @@ the whole domain on every sync. So it is the fallback, not the target.
 - It records per-sample mirror state from PIM's response. A network or auth
   failure leaves `pendingMirror` and is never reported as mirrored.
 
-## 7. Consent
+## 7. Consent: approval per batch, and a dynamic approved-metric set
 
-*Settled* (Phase 0 privacy constraint): nothing identifiable mirrors without
-owner approval. *Proposed*: `apply` requires PIM's existing owner-approval
-header. Whether the app sends it per batch after an explicit tap, or from a
-standing per-family consent the owner grants once, is **D2a**.
+Two separate owner controls, both decided:
+
+**(a) Per-batch approval (D2a).** Nothing is written without the owner approving
+**that batch**. The bridge calls `preview`, shows the owner the candidates as
+PHI-safe counts per metric (creates, unchanged, conflicts, excluded), and only
+after the owner approves calls `apply` with PIM's `x-opencommons-owner-approved:
+true` header. `apply` re-derives the batch from the same request body, as Epic's
+does, so what is applied is what was previewed.
+
+**(b) The approved-metric set, which changes at runtime (D2b).** The owner decides which
+metrics may be mirrored at all, and **changes that at any time**. PIM stores the
+set in the owner's POD and every path honors it:
+
+| Route | Does |
+|---|---|
+| `GET /api/integrations/healthkit/metrics` | the catalog, each metric's state, and the set's `generation` |
+| `POST /api/integrations/healthkit/metrics` | `{ action: "add" \| "lock" \| "remove", metrics: [...] }`. It requires the owner-approval header, bumps `generation`, and is recorded in pod activity |
+
+The actions and states are **the same as the PE ingest scope** in
+`INGEST_CONTRACT.md` (*Scope and resync*). That section was written expecting
+"the Solid pod authorization workflow" to drive it with `source: "pim"`, and
+this set is that workflow:
+
+| State | Mirror (`preview`/`apply`) | Records already in the POD |
+|---|---|---|
+| `active` | mirrored | — |
+| `locked` | held: `excluded`, `reason: "locked"` | kept |
+| `removed`, or never added | `excluded`, `reason: "not-in-scope"` | **kept**. Deleting is a separate, explicit owner action |
+
+- **Open until declared.** As with PE scope, until the owner first sets the
+  approved set, the catalog defaults apply. After that, only `active` metrics
+  mirror.
+- **Honored everywhere, not just in PIM.** On each change PIM also posts the same
+  `add`/`lock`/`remove` to every PE's `POST /api/integrations/healthkit/scope`
+  (`source: "pim"`) when a PE is configured, so ingest follows the owner's set
+  too. The bridge reads the set and **reads only approved metrics** from
+  HealthKit. A metric that becomes approved triggers the bridge's HealthKit
+  authorization request for it, and one that is removed stops being read.
+- Every change carries the new `generation`, so a bridge holding a stale set is
+  detectable, and PIM refuses a batch declared against an older generation
+  (`409`).
 
 ## 8. Verification: the mirror leg
 
@@ -153,23 +204,20 @@ beside `healthkit-bridge`, against PIM and a local CSS:
 3. **No approval, no write.** `apply` without the owner-approval header is
    refused (403), and nothing is written.
 
-## Decisions open
+## Decisions (owner, 2026-09-25)
 
-- **D2 (MVP_ROADMAP):** does the mirror block `release-v0.1.0`, or ship as a
-  stated limitation? The PIM data path makes it much smaller than an in-app
-  Solid client would have been.
-- **D2a, consent:** per-batch owner approval, or a standing per-family consent.
-- **D2b, coverage:** blood pressure and pulse only (they map to existing PIM
-  codes), or add PIM codes or domains for exercise (LOINC 55411-3) and sleep
-  (93832-4).
-- **§4 surface:** the recommended Epic-style `sync/preview` + `sync/apply`, or
-  the no-new-routes fallback for a first slice.
+- **D2: the mirror blocks the MVP.** `release-v0.1.0` is not cut until the mirror
+  is built and its CI leg is green.
+- **D2a: owner approval for each batch** (§7a).
+- **D2b: every health metric goes to the PIM**, and the approved set can be
+  **changed at runtime and is honored** everywhere (§2, §7b).
+- **Surface: `healthkit/sync/preview` + `apply`** (§4).
 
 ## Build order
 
 | Step | Repo | Depends on |
 |---|---|---|
-| Provenance field; status counts HealthKit-sourced vitals; bridge token on HealthKit routes | PIM | — |
-| `healthkit/sync/preview` + `apply`, reusing `reconcile()` / `summarizeReconciliation()` | PIM | provenance; §4 decision |
-| `PIMClient`, `HKSample.uuid` capture, mirror state from PIM's response | this repo | PIM routes (or the fallback) |
+| Metric catalog; `health-observations` domain + ShEx; provenance on vital signs; approved-metric set in the POD (`/metrics`); bridge token; status counts HealthKit-sourced records | PIM | — |
+| `healthkit/sync/preview` + `apply`, reusing `reconcile()` / `summarizeReconciliation()`; generation check; scope push to PEs | PIM | the above |
+| `PIMClient`; read only approved metrics (authorization follows the set); `HKSample.uuid` + raw values; preview → owner approval → apply; mirror state from PIM's response | this repo | PIM routes |
 | Mirror leg (§8) in the local lane | RealityEngine_CI | both |
