@@ -14,7 +14,7 @@ normalized, read-only samples to whatever runtime PE is reachable on the local n
 ```
 iPhone / Apple Watch
   └─ HealthKit data store
-       └─ SpeziHealthKit observer (Swift / SwiftUI)
+       └─ HKObserverQuery + HKAnchoredObjectQuery (HealthKitManager, Swift / SwiftUI)
             └─ localHealthkitBridge (normalization + posting)
                  └─ POST /api/integrations/healthkit/ingest
                           └─ RealityEngine Perception Engine
@@ -34,7 +34,9 @@ remain pure HTTP services with no Apple SDK dependency.
 Enable in Xcode → target → Signing & Capabilities:
 
 - **HealthKit** — required
-- **Background Modes → Background fetch** — required for observer delivery when the app is backgrounded
+- **HealthKit → Background Delivery** (`com.apple.developer.healthkit.background-delivery`) — required
+  for HealthKit to wake the app for new samples. No UIBackgroundModes entry is
+  needed or declared; *Background fetch* plays no part in HealthKit delivery.
 
 ### Privacy strings (Info.plist)
 
@@ -80,42 +82,47 @@ replayed across app launches.
 
 ## Native iOS Implementation
 
-### Anchored observer (no duplicate delivery)
+### Background delivery: what actually wakes the app
 
-Register a persistent observer for each HK type. Store the anchor between
-launches in `UserDefaults` so the query resumes from the last-seen sample.
+Verified on a physical iPhone 17 Pro, 2026-09-24 (roadmap M5):
 
-```swift
-func startObserver(for type: HKSampleType) {
-    var anchor: HKQueryAnchor? = loadAnchor(for: type)
+1. **Register at launch, not from a view.** `BridgeAppDelegate` calls
+   `restoreHealthKitRuntimeState()` from `didFinishLaunching`. On a background
+   relaunch iOS creates no window, so a SwiftUI `.task` never runs; observers
+   started only from the UI leave a relaunched app with nothing registered.
+2. **Use an `HKObserverQuery` and call its completion handler** after handling
+   each update. HealthKit backs off, and eventually stops waking the app, when
+   updates go unacknowledged. `HealthKitManager.startObserverQuery(for:)`
+   re-reads the family, delivers (awaited), then calls `completion()`.
+3. **`enableBackgroundDelivery(for:frequency: .immediate)`** per observed type.
+4. **Anchored queries** (anchors persisted in `AnchorStore`) remain for
+   foreground catch-up: opening the app delivers what arrived while it was not
+   running.
 
-    let query = HKAnchoredObjectQuery(
-        type: type,
-        predicate: nil,
-        anchor: anchor,
-        limit: HKObjectQueryNoLimit
-    ) { [weak self] _, samples, _, newAnchor, error in
-        guard error == nil, let samples else { return }
-        self?.post(samples: samples, type: type)
-        anchor = newAnchor
-        self?.saveAnchor(newAnchor, for: type)
-    }
+| Situation | Delivery |
+|---|---|
+| App backgrounded, still in memory | about 1 s |
+| System terminated or phone restarted, app never opened | about 11 s: iOS relaunches the app in the background |
+| **Force-quit by the user** | none until the user opens the app again; iOS does not relaunch a user-killed app. The latest reading is caught up on the next launch |
 
-    query.updateHandler = { [weak self] _, samples, _, newAnchor, error in
-        guard error == nil, let samples else { return }
-        self?.post(samples: samples, type: type)
-        anchor = newAnchor
-        self?.saveAnchor(newAnchor, for: type)
-    }
+### Resync (consumer asks, bridge re-sends)
 
-    healthStore.execute(query)
-    healthStore.enableBackgroundDelivery(for: type, frequency: .immediate) { _, _ in }
-}
-```
+A consumer such as localAIStack can ask the PE for a re-send
+(`POST /api/integrations/healthkit/resync`; see `docs/INGEST_CONTRACT.md`,
+"Scope and resync"). The app finds pending requests for its bridge on
+`GET /status`, re-reads the requested families fresh from HealthKit
+(`HealthKitManager.currentFamilySamples()`), and sends one batch per request
+carrying `resyncId`, at configuration and then every 30 s while running. A
+family with nothing readable is not sent, and its request stays pending: the
+bridge never invents or empties a reading.
 
-`enableBackgroundDelivery` wakes the app when new samples are written, even
-when backgrounded. The update handler fires on `HKHealthStore`'s internal queue;
-dispatch to a background serial queue before networking.
+### Not measured is not zero
+
+A HealthKit blood-pressure entry carries no heart rate (a manual entry in the
+Health app never does). When no heart-rate sample falls within ±5 min, the
+bridge sends pulse **0**, which `docs/lane-semantics.json` declares as the
+pulse axis's `absentValue`: not measured, not 0 bpm. Consumers must skip an
+axis at its `absentValue`.
 
 ### On-device privacy
 
@@ -143,7 +150,7 @@ Retain them if downstream audit or EHR export is required:
 
 | HK type identifier | Bridge family | PE sensor |
 |---|---|---|
-| `HKCorrelationTypeIdentifierBloodPressure` | blood pressure | `healthkit.blood-pressure` |
+| `HKCorrelationTypeIdentifierBloodPressure` | blood pressure | `healthkit.blood-pressure` (the universe's CI config names it `healthkit.bp`: sensor ids come from the PE's mapping) |
 | `HKQuantityTypeIdentifierBloodPressureSystolic` | blood pressure | (component of above) |
 | `HKQuantityTypeIdentifierBloodPressureDiastolic` | blood pressure | (component of above) |
 | `HKWorkoutTypeIdentifierWorkout` | exercise | `healthkit.exercise` |
@@ -360,12 +367,21 @@ Expected automated M5 result:
 
 ```text
 PASS: 3 healthkit sensors live on the PE
-healthkit.blood-pressure @ [4320:4324]
+healthkit.bp @ [4320:4324]        (id from the PE's mapping; `healthkit.blood-pressure` in the CPP example config)
 healthkit.exercise @ [4330:4334]
 healthkit.sleep @ [4340:4344]
 ```
 
 The script validates installation, launch, LAN delivery, and registry mapping.
+**A PASS proves transport, auth and mapping, not that real Health data flowed:**
+`-autoTestPush` sends the fixed connectivity batch (120/78 mmHg, pulse 64,
+42 exercise min, 7.2 h sleep, source "HK Bridge Test"). Real readings arrive
+through the observers. Check the PE for values that differ from the test batch.
+
+On a Mac whose DHCP address changes, the app keeps the address it was configured
+with and deliveries fail with `NSURLErrorDomain -1004`. Re-point it with
+`-peBaseURL http://<new-lan-ip>:<port>` or in Settings, and reserve the Mac's
+address on the router.
 The HealthKit background-delivery portion remains a manual checklist because it
 requires owner permission prompts and real or manually entered Health samples on
 the device.
@@ -384,6 +400,16 @@ Per-runtime bridge setup guides with example configs and e2e verification:
 - CPP → [`RealityEngine_CPP/docs/HEALTHKIT_SPEZI_BRIDGE.md`](https://github.com/jateeter/RealityEngine_CPP/blob/main/docs/HEALTHKIT_SPEZI_BRIDGE.md)
 - Scala → [`RealityEngine_Scala/perception-engine/docs/HEALTHKIT_SPEZI_BRIDGE.md`](https://github.com/jateeter/RealityEngine_Scala/blob/main/perception-engine/docs/HEALTHKIT_SPEZI_BRIDGE.md)
 - LSP → [`RealityEngine_LSP/docs/HEALTHKIT_SPEZI_BRIDGE.md`](https://github.com/jateeter/RealityEngine_LSP/blob/main/docs/HEALTHKIT_SPEZI_BRIDGE.md)
+
+---
+
+## Known issues
+
+- [#40](https://github.com/jateeter/localHealthkitBridge/issues/40): the silence
+  watchdog alerts repeatedly after a manual app restart, instead of once per
+  silence episode. Also, `-bridgeToken` passed as a **launch argument** is saved
+  to `UserDefaults`, so a diagnostic launch changes the persisted credential for
+  every later launch.
 
 ---
 

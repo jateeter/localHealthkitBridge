@@ -1,6 +1,6 @@
 # localHealthkitBridge — Roadmap to MVP (v0.1.0)
 
-Last reviewed: 2026-09-17
+Last reviewed: 2026-09-24
 
 ## Where the project stands
 
@@ -15,7 +15,7 @@ truth.
 | Here now | |
 |---|---|
 | `Package.swift` + `Sources/HealthKitBridge/` | 7 modules — configuration, anchored HK queries, normalization, ingest client, anchor persistence |
-| `Tests/HealthKitBridgeTests/` | 5 suites, run by `swift test` |
+| `Tests/HealthKitBridgeTests/` | 7 suites (36 tests), run by `swift test` |
 | `App/` | SwiftUI host app + `App/UITests/` |
 | `scripts/` | 5 scripts: contract smoke, simulator e2e, seeded e2e, device e2e, mobile-Solid phase 0 |
 | `.github/workflows/ci.yml` | `swift build` + `swift test`, plus an unsigned generic-iOS build and a simulator Patient-navigation UI test, on `macos-15` |
@@ -41,7 +41,7 @@ The server side the bridge talks to is **already built and is not MVP work**:
 | Scala PE ingest + status | ✅ `PerceptionRoutes.scala:816` |
 | Example configs / payload fixtures / e2e scripts | ✅ per runtime (`integrations.healthkit-spezi.example.json`, `e2e_healthkit_spezi.sh`) |
 | Corpus machines consuming HK regions (~[4300:4560]) | ✅ `RealityEngine_Machines/machines/domains/health-personal/` |
-| localAIStack health domain (band sensors [186:194], chat context, simulator) | ✅ Phases 1–3 complete |
+| localAIStack health domain | ✅ grades the bridge's families (`data/health/health_bands.json`), follows HealthKit scope, asks for resyncs; verified end to end from this app on a physical iPhone 2026-09-24 (localAIStack `HEALTH_INTEGRATION_ROADMAP.md` T8) |
 
 ## Contract drift that must be reconciled first (M0)
 
@@ -219,7 +219,28 @@ token / stop the PE). The `devicectl` launch also requires the iPhone to be
 **unlocked** — a locked screen fails with `FBSOpenApplicationErrorDomain`
 error 7 ("device was not, or could not be, unlocked").
 
-### M6 — Release hygiene (1–2 days) — the only open milestone
+### M5 — completed on device, 2026-09-24
+
+The manual remainder was walked through with the owner at a physical iPhone 17
+Pro (iOS 26), against the C++ PE of a live universe over LAN with token auth:
+
+| Check | Result |
+|---|---|
+| HealthKit authorization + observers | ✅ real Health data (exercise) flowed through the observers |
+| Backgrounded wake | ✅ manual BP entry reached the PE in about 1 s |
+| System-terminated / restarted wake | ✅ **after #39**: 142/90 reached the PE 11 s after entry, app never opened. Before #39 nothing was delivered: observers were started only from the UI, and there was no `HKObserverQuery` / completion |
+| User force-quit | by design, no relaunch until opened; catch-up on open verified (124/82) |
+| TTL expiry and re-arm | ✅ families lapsed after 15 min, and the next delivery re-activated them |
+| Silence watchdog | ⚠️ alerts fire, but **repeat** after a manual restart instead of once per episode: #40 |
+| Resync fulfilment (new, #37) | ✅ an exercise resync was answered in 9 s with real data; a sleep resync correctly stayed pending (no sleep recorded) |
+
+Also found and fixed on the way: pulse 0 from a heart-rate-less BP entry was
+graded downstream as 0 bpm, now declared `absentValue` in
+`docs/lane-semantics.json` (#38). And `-autoTestPush`'s connectivity batch is
+not real data, so a device-e2e PASS proves transport, not HealthKit flow
+(README).
+
+### M6 — Release hygiene (1–2 days) — the only open milestone: README done 2026-09-24, tag pending
 
 - README truth pass against shipped behavior; tag `v0.1.0`; optional TestFlight.
 
