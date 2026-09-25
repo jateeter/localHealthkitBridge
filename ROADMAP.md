@@ -1,10 +1,10 @@
 # localHealthkitBridge — Roadmap to MVP (v0.1.0)
 
-Last reviewed: 2026-09-24
+Last reviewed: 2026-09-25
 
 ## Where the project stands
 
-**This repo ships a Swift package and an iOS host app, and is in the MVP.**
+**This repo ships a Swift package and an iOS host app, released as `v0.1.0` (MVP) on 2026-09-25.**
 
 It was documentation-only when this roadmap was written on 2026-07-13. That
 stopped being true with M1, and the claim survived here long after the code
@@ -240,21 +240,22 @@ graded downstream as 0 bpm, now declared `absentValue` in
 not real data, so a device-e2e PASS proves transport, not HealthKit flow
 (README).
 
-### M6 — Release hygiene (1–2 days) — the only open milestone: README done 2026-09-24, tag pending
+### M6 — Release hygiene (1–2 days) — ✅ 2026-09-25: README done 2026-09-24, `v0.1.0` tagged
 
 - README truth pass against shipped behavior; tag `v0.1.0`; optional TestFlight.
 
-Checked 2026-09-17, and both halves are genuinely outstanding:
-
 | | |
 |---|---|
-| Tags present | `v0.0.1-baseline` only — **`v0.1.0` is not tagged** |
-| README last changed | **not since 2026-08-09** — no truth pass has happened |
+| Tag | **`v0.1.0`** — annotated, on `e351651` (#41), 2026-09-25; CI green on that commit |
+| README | truth pass merged in #41, 2026-09-24 |
+| TestFlight | not done (optional) |
+| Known issue shipped | #40 — silence-watchdog alerts repeat after a manual restart |
 
-M5's device leg also still carries its manual remainder (HealthKit authorization
-and observers, backgrounded/killed wake, TTL re-arm, the silent-failure
-watchdog). Those need a physical operator at an unlocked device and cannot be
-closed from here.
+On 2026-09-17 both halves were still outstanding (only `v0.0.1-baseline`;
+README unchanged since 2026-08-09).
+
+M5's device leg was closed on hardware on 2026-09-24 (see M5); the watchdog
+repeat it found is #40.
 
 ### Delivered after M7, not previously recorded here — 2026-08-15 → 08-22
 
