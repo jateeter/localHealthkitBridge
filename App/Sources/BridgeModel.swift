@@ -9,6 +9,10 @@ import HealthKitBridge
 /// user-editable configuration (persisted to UserDefaults).
 @MainActor
 final class BridgeModel: ObservableObject {
+    /// One bridge per process, shared by the app delegate (launch-time observer
+    /// registration) and the SwiftUI scene.
+    static let shared = BridgeModel()
+
     @Published var peBaseURL: String
     @Published var bridgeId: String
     @Published var bridgeToken: String
@@ -90,7 +94,8 @@ final class BridgeModel: ObservableObject {
             },
             onEvent: { [weak self] event in
                 Task { @MainActor in self?.handleHealthKitEvent(event) }
-            }
+            },
+            deliver: { samples in await coordinator.deliver(samples) }
         )
         print("HealthKitBridge configured peBaseURL=\(url.absoluteString) bridgeId=\(bridgeId) tokenConfigured=\(!bridgeToken.isEmpty)")
         if enteredBaseURL != peBaseURL {

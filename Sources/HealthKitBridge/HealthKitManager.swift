@@ -24,15 +24,21 @@ public final class HealthKitManager: @unchecked Sendable {
     private var activeQueries: [HKQuery] = []
     private let onBatch: BatchHandler
     private let onEvent: EventHandler
+    /// Awaitable delivery for the background observer path: the observer's
+    /// completion handler is called only after the attempt, so iOS does not
+    /// suspend the app mid-request. Falls back to `onBatch` when not supplied.
+    private let deliver: (@Sendable ([IngestSample]) async -> Void)?
 
     public init(
         anchors: AnchorStore = AnchorStore(),
         onBatch: @escaping BatchHandler,
-        onEvent: @escaping EventHandler = { _ in }
+        onEvent: @escaping EventHandler = { _ in },
+        deliver: (@Sendable ([IngestSample]) async -> Void)? = nil
     ) {
         self.anchors = anchors
         self.onBatch = onBatch
         self.onEvent = onEvent
+        self.deliver = deliver
     }
 
     public static var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
@@ -103,6 +109,7 @@ public final class HealthKitManager: @unchecked Sendable {
     public func startObservers() {
         for type in Self.observedTypes {
             startAnchoredQuery(for: type)
+            startObserverQuery(for: type)
             store.enableBackgroundDelivery(for: type, frequency: .immediate) { [weak self] _, error in
                 if let error {
                     self?.onEvent(.queryFailed(typeIdentifier: type.identifier, message: error.localizedDescription))
@@ -130,6 +137,38 @@ public final class HealthKitManager: @unchecked Sendable {
             activeQueries.forEach(store.stop)
             activeQueries.removeAll()
         }
+    }
+
+    /// Background delivery runs through an `HKObserverQuery`, and HealthKit
+    /// requires its completion handler to be called for every update: without
+    /// it HealthKit backs off and, after repeated misses, stops launching the
+    /// app for background updates. The bridge had only anchored queries, which
+    /// have no completion, so a system-terminated or restarted app was never
+    /// woken (M5 device walk-through, 2026-09-24: no relaunch after a restart).
+    /// The completion acknowledges that the update was handled, not that the PE
+    /// accepted it; a failed delivery is retried by the next update and at launch.
+    private func startObserverQuery(for type: HKSampleType) {
+        let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completion, error in
+            guard let self else { completion(); return }
+            if let error {
+                self.onEvent(.queryFailed(typeIdentifier: type.identifier, message: error.localizedDescription))
+                completion()
+                return
+            }
+            Task {
+                if let reading = await self.reading(for: type) {
+                    self.onEvent(.snapshot([reading.snapshot], refreshedAt: Date(), missing: []))
+                    if let deliver = self.deliver {
+                        await deliver([reading.sample])
+                    } else {
+                        self.onBatch([reading.sample])
+                    }
+                }
+                completion()
+            }
+        }
+        queue.sync { activeQueries.append(query) }
+        store.execute(query)
     }
 
     private func startAnchoredQuery(for type: HKSampleType) {
@@ -166,19 +205,23 @@ public final class HealthKitManager: @unchecked Sendable {
     private func handleDelivery(for type: HKSampleType, samples: [HKSample]) {
         Task { [weak self] in
             guard let self else { return }
-            let reading: FamilyReading?
-            switch type.identifier {
-            case HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue:
-                reading = await self.bloodPressureReading()
-            case HKCategoryTypeIdentifier.sleepAnalysis.rawValue:
-                reading = await self.sleepReading()
-            default:
-                reading = await self.exerciseReading()
-            }
+            let reading = await self.reading(for: type)
             if let reading {
                 self.onEvent(.snapshot([reading.snapshot], refreshedAt: Date(), missing: []))
                 self.onBatch([reading.sample])
             }
+        }
+    }
+
+    /// The family reading an update to `type` refreshes.
+    private func reading(for type: HKSampleType) async -> FamilyReading? {
+        switch type.identifier {
+        case HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue:
+            return await bloodPressureReading()
+        case HKCategoryTypeIdentifier.sleepAnalysis.rawValue:
+            return await sleepReading()
+        default:
+            return await exerciseReading()
         }
     }
 
