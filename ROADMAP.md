@@ -102,6 +102,12 @@ Two consequences for work here:
   `pendingMirror` is a real intermediate state, not a display detail.
 - Nothing downstream should read the device pod as authoritative.
 
+**The mechanics are specified in [`docs/MIRROR_CONTRACT.md`](docs/MIRROR_CONTRACT.md)**
+(proposed 2026-09-25): the bridge app is the sole writer; one resource per
+`HKSample.uuid`; conditional `PUT` (`If-None-Match` / `If-Match`) so a POD resource
+is never overwritten unseen; conflicts adopt the SCS copy and are recorded in
+`sync/conflicts/`; and a local-lane mirror leg. It depends on PM-3 and PM-4.
+
 PE ingest is unaffected — the bridge continues to post normalized vectors to
 `/api/integrations/healthkit/ingest`. That path feeds the perceptual space; the
 pod mirror is about durable ownership of the underlying observations. They are

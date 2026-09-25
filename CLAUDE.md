@@ -22,6 +22,7 @@ This repo contains the iOS HealthKit → Perception Engine bridge: a Swift packa
 - `App/`: SwiftUI host app, with `App/UITests/` for the seeded XCUITest leg.
 - `scripts/`: contract smoke, simulator / seeded / device e2e, and mobile-Solid phase 0.
 - `docs/INGEST_CONTRACT.md`: canonical ingest contract — single source of truth.
+- `docs/MIRROR_CONTRACT.md`: how device-side HealthKit data mirrors into the authoritative PIM POD (writer, identity, conflicts, the mirror leg). **Proposed** 2026-09-25; decisions D2/D2a/D2b are open.
 - `ROADMAP.md`: the M0–M6 plan. v0.1.0 (MVP) was tagged on 2026-09-25; the roadmap records what is open after it.
 
 ## Key Commands
