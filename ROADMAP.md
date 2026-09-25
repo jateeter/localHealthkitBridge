@@ -103,10 +103,13 @@ Two consequences for work here:
 - Nothing downstream should read the device pod as authoritative.
 
 **The mechanics are specified in [`docs/MIRROR_CONTRACT.md`](docs/MIRROR_CONTRACT.md)**
-(proposed 2026-09-25): the bridge app is the sole writer; one resource per
-`HKSample.uuid`; conditional `PUT` (`If-None-Match` / `If-Match`) so a POD resource
-is never overwritten unseen; conflicts adopt the SCS copy and are recorded in
-`sync/conflicts/`; and a local-lane mirror leg. It depends on PM-3 and PM-4.
+(proposed 2026-09-25). The bridge talks to the **PIM's HTTP API**, and PIM, which
+already authenticates to the Solid server, validates with ShEx, reconciles and
+records activity, is the only writer to the POD. Blood pressure and pulse map to
+PIM's `vital-signs` domain; duplicates are prevented by PIM's existing
+reconciliation key (`code::effectiveDateTime`, as the Epic import uses); a
+conflict leaves the POD record unchanged. **PM-3/PM-4 (in-app Solid) are not
+needed for the mirror.**
 
 PE ingest is unaffected — the bridge continues to post normalized vectors to
 `/api/integrations/healthkit/ingest`. That path feeds the perceptual space; the
