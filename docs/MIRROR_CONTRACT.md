@@ -40,36 +40,62 @@ iPhone bridge app ──HTTP──▶ PIM  ──(PIM's own Solid session)──
 `MOBILE_SOLID_PHASE0_COMPATIBILITY.md` are **not on the mirror path**. The Pod
 tab shows PIM's status instead of holding its own session.
 
-## 2. Which metrics: all of them, from a catalog
+## 2. Which metrics: every metric, declared at runtime, stored by pillar
 
-*Decided (D2b):* **every health metric** the bridge can read goes to the PIM, not
-just the three families PE ingest uses.
+*Decided (D2b, owner 2026-09-25):* **every health metric** the bridge can read
+goes to the PIM, and **metrics are added and removed dynamically**. So there is
+**no pre-loaded metric catalog**: the set of metrics is runtime data in the
+owner's POD, and the POD's storage grows with it.
 
-PIM holds a **metric catalog**: data, not code. Each entry maps one HealthKit
-type identifier to where and how PIM stores it:
+**Two meanings of "domain", never conflated.** RealityEngine machine domains are
+distinct from PIM/POD/FHIR domains. In RealityEngine, all Apple HealthKit and
+FHIR/Epic metrics belong to the single machine domain `health-personal`.
+**Pillars** are the semantic categories *within* those metrics, used by the
+bridge and PIM. PIM's 11-domain owner-visible contract is unchanged. The UI in
+the bridge and PIM is developed separately; this contract is data and API only.
+
+### Metric registry (in the POD)
+
+A metric enters the registry when the bridge **declares** it, typically as
+HealthKit authorizes a type. It declares it with a descriptor:
 
 | Field | Meaning |
 |---|---|
-| `metric` | the HealthKit type identifier (`HKQuantityTypeIdentifierHeartRate`, `HKCategoryTypeIdentifierSleepAnalysis`, `HKCorrelationTypeIdentifierBloodPressure`, …) |
-| `domain` | `vital-signs` when PIM already has a vital-sign code for it; otherwise the new generic **`health-observations`** domain |
-| `code`, `loinc`, `unit` | the PIM code, the LOINC code and the UCUM unit it is stored with |
-| `category` | `vital-signs`, `activity`, `body`, `sleep`, `nutrition`, `respiratory`, `mindfulness`, … |
-| `valueShape` | `scalar`, `components` (e.g. systolic/diastolic), or `interval` (sleep stages, workouts) |
+| `metric` | the HealthKit type identifier, e.g. `HKQuantityTypeIdentifierStepCount` |
+| `kind` | `quantity`, `category`, `correlation`, `workout` or `clinical` |
+| `unit` | UCUM unit of the raw values (quantity kinds) |
+| `loinc` | LOINC code, when one applies |
+| `fhirCategory` | FHIR Observation category (`vital-signs`, `activity`, `laboratory`, …), or the FHIR resource type for clinical records |
+| `appleCategory` | Apple Health category: Activity, Body Measurements, Heart, Respiratory, Sleep, Nutrition, Mindfulness, Mobility, Hearing, Cycle Tracking, Symptoms, Vitals, … |
 
-- **The nine vital-sign metrics** (blood pressure, heart rate, body weight and
-  height, BMI, respiratory rate, body temperature, oxygen saturation, blood
-  glucose) land in the existing `vital-signs` domain, so they reconcile with
-  Epic's.
-- **Everything else** (steps, active and basal energy, exercise time,
-  distance, sleep analysis, workouts, heart-rate variability, resting heart
-  rate, body fat, mindful minutes, …) lands in **`health-observations`**. That is
-  a generic FHIR-`Observation`-shaped domain with its own ShEx shape, so adding
-  a metric is a catalog entry, not a schema change.
-- A metric the catalog does not know is **reported, never dropped silently**.
+A declared metric starts **`proposed`** and mirrors nothing until the owner acts
+on it (§7b).
+
+### Pillar: derived from the descriptor, not from a list
+
+Classification is by rule. The only fixed inputs are PIM's existing schema,
+namely its nine vital-sign codes and its FHIR mapping.
+
+1. **Clinical records** (`kind: clinical`, HealthKit's FHIR resources) → the
+   matching FHIR pillar (conditions, medications, allergies, immunizations,
+   lab-results, vital-signs, insurance-policies), mapped by the **same mapper
+   the Epic import uses**, so they reconcile with Epic records.
+2. **A metric whose code or LOINC is one of PIM's nine vital-sign codes**
+   (blood pressure, heart rate, body weight and height, BMI, respiratory rate,
+   body temperature, oxygen saturation, blood glucose) → the existing
+   **`vital-signs`** pillar, where it reconciles with Epic's vitals.
+3. **Everything else** → the pillar named by its `appleCategory`. That is a POD
+   container of FHIR-`Observation`-shaped records, **created on first use**. A
+   category never used gets no container.
+
+A sample of a metric that was never declared is reported as `undeclared`, and
+auto-declared as `proposed` for the owner. It is never dropped silently and
+never mirrored before approval.
 
 Values are the **raw measurements** with their units. The `[0,1]` normalization
 is a PE concern (`INGEST_CONTRACT.md`), so the mirror takes each `HKSample`
-**before** normalization.
+**before** normalization. **Bridge → PE ingest is unchanged** and follows the
+RealityEngine integration framework (`INGEST_CONTRACT.md`, `integrations.json`).
 
 ## 3. Identity, and why duplicates cannot occur
 
@@ -161,8 +187,8 @@ set in the owner's POD and every path honors it:
 
 | Route | Does |
 |---|---|
-| `GET /api/integrations/healthkit/metrics` | the catalog, each metric's state, and the set's `generation` |
-| `POST /api/integrations/healthkit/metrics` | `{ action: "add" \| "lock" \| "remove", metrics: [...] }`. It requires the owner-approval header, bumps `generation`, and is recorded in pod activity |
+| `GET /api/integrations/healthkit/metrics` | the registry: each declared metric, its pillar, its state, and the set's `generation` |
+| `POST /api/integrations/healthkit/metrics` | `{ action: "declare", descriptors: [...] }` from the bridge (a new metric becomes `proposed`; no approval needed, because declaring grants nothing). `{ action: "add" \| "lock" \| "remove", metrics: [...] }` from the owner: requires the owner-approval header, bumps `generation`, and is recorded in pod activity |
 
 The actions and states are **the same as the PE ingest scope** in
 `INGEST_CONTRACT.md` (*Scope and resync*). That section was written expecting
@@ -171,13 +197,14 @@ this set is that workflow:
 
 | State | Mirror (`preview`/`apply`) | Records already in the POD |
 |---|---|---|
+| `proposed` (declared, not yet approved) | `excluded`, `reason: "pending-approval"` | — |
 | `active` | mirrored | — |
 | `locked` | held: `excluded`, `reason: "locked"` | kept |
 | `removed`, or never added | `excluded`, `reason: "not-in-scope"` | **kept**. Deleting is a separate, explicit owner action |
 
-- **Open until declared.** As with PE scope, until the owner first sets the
-  approved set, the catalog defaults apply. After that, only `active` metrics
-  mirror.
+- **Nothing is open by default.** Unlike PE ingest scope (open until
+  declared), the mirror writes identifiable data to the owner's POD, so only
+  `active` metrics ever mirror.
 - **Honored everywhere, not just in PIM.** On each change PIM also posts the same
   `add`/`lock`/`remove` to every PE's `POST /api/integrations/healthkit/scope`
   (`source: "pim"`) when a PE is configured, so ingest follows the owner's set
@@ -209,15 +236,18 @@ beside `healthkit-bridge`, against PIM and a local CSS:
 - **D2: the mirror blocks the MVP.** `release-v0.1.0` is not cut until the mirror
   is built and its CI leg is green.
 - **D2a: owner approval for each batch** (§7a).
-- **D2b: every health metric goes to the PIM**, and the approved set can be
-  **changed at runtime and is honored** everywhere (§2, §7b).
+- **D2b: every health metric goes to the PIM**, metrics are **added and removed
+  dynamically** (no pre-loaded catalog), and the approved set is **honored**
+  everywhere (§2, §7b). The POD is organized **by pillar**, using the semantic
+  categories of FHIR/Epic and Apple HealthKit, and PIM's 11-domain contract
+  stays.
 - **Surface: `healthkit/sync/preview` + `apply`** (§4).
 
 ## Build order
 
 | Step | Repo | Depends on |
 |---|---|---|
-| Metric catalog; `health-observations` domain + ShEx; provenance on vital signs; approved-metric set in the POD (`/metrics`); bridge token; status counts HealthKit-sourced records | PIM | — |
+| Metric registry in the POD (declare / add / lock / remove, generation); rule-based pillar classification; per-pillar observation containers created on first use + ShEx; provenance on vital signs; bridge token; status counts HealthKit-sourced records | PIM | — |
 | `healthkit/sync/preview` + `apply`, reusing `reconcile()` / `summarizeReconciliation()`; generation check; scope push to PEs | PIM | the above |
-| `PIMClient`; read only approved metrics (authorization follows the set); `HKSample.uuid` + raw values; preview → owner approval → apply; mirror state from PIM's response | this repo | PIM routes |
+| `PIMClient`; declare metrics as HealthKit authorizes them; read only `active` metrics; `HKSample.uuid` + raw values; preview → owner approval → apply; mirror state from PIM's response | this repo | PIM routes |
 | Mirror leg (§8) in the local lane | RealityEngine_CI | both |
