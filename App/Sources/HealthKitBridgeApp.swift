@@ -1,9 +1,33 @@
 import SwiftUI
+import UIKit
 import UserNotifications
+
+/// Registers the HealthKit observers at application launch, not from a view.
+///
+/// When iOS relaunches the app in the background to deliver HealthKit data,
+/// no window and no view are created, so a SwiftUI `.task` never runs. The
+/// observers used to be started only from ContentView's `.task`, so a
+/// background relaunch woke an app with nothing registered and delivered
+/// nothing (M5 device walk-through, 2026-09-24). HealthKit expects the queries
+/// to be set up in `didFinishLaunching`.
+final class BridgeAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        Task { @MainActor in
+            print("HealthKitBridge didFinishLaunching state=\(application.applicationState.rawValue)")
+            await BridgeModel.shared.restoreHealthKitRuntimeState()
+        }
+        return true
+    }
+}
 
 @main
 struct HealthKitBridgeApp: App {
-    @StateObject private var model = BridgeModel()
+    @UIApplicationDelegateAdaptor(BridgeAppDelegate.self) private var appDelegate
+    // The same instance the app delegate restores at launch: one bridge per process.
+    @StateObject private var model = BridgeModel.shared
 
     init() {
         let reviewAction = UNNotificationAction(
