@@ -225,6 +225,16 @@ public final class HealthKitManager: @unchecked Sendable {
         }
     }
 
+    /// Every family re-read fresh from HealthKit, no anchors: what a resync
+    /// sends (INGEST_CONTRACT.md, "Scope and resync"). A family with nothing
+    /// readable is omitted rather than sent empty.
+    public func currentFamilySamples() async -> [IngestSample] {
+        async let bp = latestBloodPressureSample()
+        async let exercise = exerciseSampleForToday()
+        async let sleep = sleepSampleForLast24Hours()
+        return await [bp, exercise, sleep].compactMap { $0 }
+    }
+
     /// Latest blood-pressure correlation → BP family sample. Pulse comes from
     /// the most recent heart-rate reading in the correlation's window, if any.
     func latestBloodPressureSample() async -> IngestSample? {

@@ -79,6 +79,9 @@ public enum HealthKitRuntimeEvent: Sendable {
 struct IngestRequestBody: Encodable {
     var bridgeId: String
     var anchorToken: String?
+    /// Set when the batch fulfils a resync request (INGEST_CONTRACT.md,
+    /// "Scope and resync"); omitted from the body otherwise.
+    var resyncId: String?
     var samples: [IngestSample]
 }
 
@@ -116,6 +119,27 @@ public struct BridgeStatus: Decodable, Sendable {
     public var tokenConfigured: Bool?
     public var ingestEndpoint: String?
     public var statusEndpoint: String?
+    /// Absent on a PE that predates the scope contract.
+    public var scope: ScopeStatus?
+}
+
+/// `/status` scope block (INGEST_CONTRACT.md, "Scope and resync").
+public struct ScopeStatus: Decodable, Sendable {
+    public var declared: Bool?
+    public var generation: Int?
+    public var resyncRequests: [ResyncRequest]?
+}
+
+/// A consumer's request, made through the PE, for this bridge to re-send.
+public struct ResyncRequest: Decodable, Sendable, Equatable {
+    public var id: String
+    public var bridgeId: String?
+    /// HealthKit type identifiers; empty means every type in scope.
+    public var types: [String]
+    public var requestedBy: String?
+    public var state: String
+
+    public var isPending: Bool { state == "pending" }
 }
 
 public enum BridgeError: Error, Equatable, Sendable {

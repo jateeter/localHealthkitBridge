@@ -34,6 +34,7 @@ final class BridgeModel: ObservableObject {
     private var coordinator: BridgeCoordinator?
     private var manager: HealthKitManager?
     private var eventTask: Task<Void, Never>?
+    private var resyncTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
 
     init() {
@@ -97,6 +98,7 @@ final class BridgeModel: ObservableObject {
             },
             deliver: { samples in await coordinator.deliver(samples) }
         )
+        startResyncLoop()
         print("HealthKitBridge configured peBaseURL=\(url.absoluteString) bridgeId=\(bridgeId) tokenConfigured=\(!bridgeToken.isEmpty)")
         if enteredBaseURL != peBaseURL {
             appendLocal(.info, "Normalized PE base URL to \(peBaseURL)")
@@ -143,6 +145,25 @@ final class BridgeModel: ObservableObject {
 
     /// Push one nominal sample per family — used to verify connectivity
     /// without seeded Health data (and by the e2e -autoTestPush path).
+    /// Answer resync requests (INGEST_CONTRACT.md, "Scope and resync"): a
+    /// consumer such as localAIStack asks through the PE for a re-send, and the
+    /// bridge finds the request on `/status`. Checked at once and then every
+    /// 30 s while the app runs; the re-read comes from HealthKit, never from
+    /// the connectivity test batch.
+    private func startResyncLoop() {
+        resyncTask?.cancel()
+        guard let coordinator, let manager else { return }
+        resyncTask = Task {
+            while !Task.isCancelled {
+                let done = await coordinator.fulfilPendingResyncs { await manager.currentFamilySamples() }
+                if !done.isEmpty {
+                    print("HealthKitBridge resync fulfilled ids=\(done.joined(separator: ","))")
+                }
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
+    }
+
     func sendTestBatch() async {
         let samples = [
             SampleNormalizer.bloodPressure(systolicMmHg: 120, diastolicMmHg: 78, pulseBpm: 64, sourceName: "HK Bridge Test"),
