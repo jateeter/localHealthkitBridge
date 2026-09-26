@@ -15,7 +15,7 @@ truth.
 | Here now | |
 |---|---|
 | `Package.swift` + `Sources/HealthKitBridge/` | 7 modules — configuration, anchored HK queries, normalization, ingest client, anchor persistence |
-| `Tests/HealthKitBridgeTests/` | 7 suites (36 tests), run by `swift test` |
+| `Tests/HealthKitBridgeTests/` | 9 suites (52 tests; the PIM wire test skips unless `HEALTHKIT_PIM_WIRE_URL` is set), run by `swift test` |
 | `App/` | SwiftUI host app + `App/UITests/` |
 | `scripts/` | 5 scripts: contract smoke, simulator e2e, seeded e2e, device e2e, mobile-Solid phase 0 |
 | `.github/workflows/ci.yml` | `swift build` + `swift test`, plus an unsigned generic-iOS build and a simulator Patient-navigation UI test, on `macos-15` |

@@ -18,11 +18,18 @@ This repo contains the iOS HealthKit → Perception Engine bridge: a Swift packa
 - `Sources/HealthKitBridge/AnchorStore.swift`: per-type anchor persistence (UserDefaults, Data-based for testability).
 - `Sources/HealthKitBridge/BridgeCoordinator.swift`: wiring of the above.
 - `Sources/HealthKitBridge/Models.swift`: payload/response types mirroring the ingest contract.
+- Mirror to PIM (`docs/MIRROR_CONTRACT.md`; separate from ingest, which is unchanged):
+  - `PIMClient.swift`: `PIMConfiguration` and the client for PIM's `/api/integrations/healthkit/{metrics,sync/preview,sync/apply}`. Bearer `PIM_HEALTHKIT_BRIDGE_TOKEN`; sends `x-opencommons-owner-approved: true` only on an apply carrying an `OwnerApproval` of that exact preview.
+  - `MirrorCoordinator.swift`: declare → owner's metric set → stage only `active` metrics → preview → approved apply; re-reads the set on 409.
+  - `MirrorLedger.swift`: per-`HKSample.uuid` state (`pendingMirror`/`mirrored`/`conflict`); identity and outcome only, never values.
+  - `MetricDescriber.swift`: what a HealthKit type is (kind, unit, LOINC, Apple category). Not the approved set, which is runtime data in the POD.
+  - `MirrorModels.swift`: wire types matching PIM `src/integrations/healthkit/types.ts`.
+  - `HealthKitMirrorSource.swift`: raw `HKSample`s (uuid, dates, raw values) by time window, before normalization.
 - `Tests/HealthKitBridgeTests/`: unit coverage.
 - `App/`: SwiftUI host app, with `App/UITests/` for the seeded XCUITest leg.
 - `scripts/`: contract smoke, simulator / seeded / device e2e, and mobile-Solid phase 0.
 - `docs/INGEST_CONTRACT.md`: canonical ingest contract — single source of truth.
-- `docs/MIRROR_CONTRACT.md`: how device-side HealthKit data reaches the authoritative POD. **The bridge calls PIM's HTTP API, and PIM, which already holds the Solid session, writes the POD**; the app speaks no Solid. Blood pressure and pulse map to PIM's `vital-signs` domain, and duplicates are prevented by PIM's own reconciliation key. **Proposed** 2026-09-25; decisions D2/D2a/D2b are open.
+- `docs/MIRROR_CONTRACT.md`: how device-side HealthKit data reaches the authoritative POD. **The bridge calls PIM's HTTP API, and PIM, which already holds the Solid session, is the only POD writer**; the app speaks no Solid. Metrics are declared at runtime and mirror only once the owner approves them; records are stored by pillar, and each batch needs the owner's approval. Decided 2026-09-25 (D2, D2a, D2b); the mirror blocks the MVP.
 - `ROADMAP.md`: the M0–M6 plan. v0.1.0 (MVP) was tagged on 2026-09-25; the roadmap records what is open after it.
 
 ## Key Commands
@@ -30,6 +37,7 @@ This repo contains the iOS HealthKit → Perception Engine bridge: a Swift packa
 ```bash
 swift build
 swift test
+HEALTHKIT_PIM_WIRE_URL=... [HEALTHKIT_PIM_WIRE_TOKEN=...] swift test --filter PIMWireTests  # mirror leg against a running PIM
 PE_BASE_URL=... [HEALTHKIT_BRIDGE_TOKEN=...] ./scripts/e2e_simulator.sh   # test-batch leg
 PE_BASE_URL=... [HEALTHKIT_BRIDGE_TOKEN=...] ./scripts/e2e_seeded.sh      # seeded XCUITest leg
 DEVELOPMENT_TEAM=... [PE_BASE_URL=http://<lan-ip>:...] ./scripts/e2e_device.sh  # physical device leg (M5)
