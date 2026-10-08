@@ -323,8 +323,11 @@ HTTP status: `200` (all resolved) · `207` (partial) · `400` (all unmapped).
 ## Runtime Connection
 
 Prefer the runtime registry over static ports — `startUniverse.sh` publishes
-`http://<mac-lan-ip>:5999/re-registry.json`, and `instances[].pe_url` is the
-authoritative PE base URL per engine. Universe default allocations:
+it at `http://<mac-lan-ip>:<port>/re-registry.json` and writes the exact address
+to `RealityEngine_CI/.universe-registry-url`. The port is `5999` with fixed
+ports and OS-assigned under `--free-ports`, so read it from that file rather
+than assuming `5999`. `instances[].pe_url` is the authoritative PE base URL per
+engine. Universe default allocations:
 
 | Runtime | Universe PE port | Example base URL |
 |---|---|---|

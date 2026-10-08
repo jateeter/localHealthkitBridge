@@ -31,7 +31,7 @@ swift test
 Live contract parity (universe running, from RealityEngine_Machines):
 
 ```bash
-RE_REGISTRY_URL=http://127.0.0.1:5999/re-registry.json npx playwright test tests/integration/healthkit-ingest-contract.spec.ts
+npx playwright test tests/integration/healthkit-ingest-contract.spec.ts   # RE_REGISTRY_URL defaults to the universe's recorded address
 ```
 
 ## Artifact Hygiene
