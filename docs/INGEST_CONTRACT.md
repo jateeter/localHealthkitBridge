@@ -227,8 +227,9 @@ HTTP status: `200` all resolved · `207` partial · `400` all unmapped ·
 
 ## Discovering the PE
 
-Prefer the runtime registry (`http://<host>:5999/re-registry.json`, field
-`instances[].pe_url`) over hard-coded ports. Static defaults when running a
+Prefer the runtime registry (field `instances[].pe_url`) over hard-coded
+ports. Its address is in `RealityEngine_CI/.universe-registry-url`: port `5999`
+with fixed ports, OS-assigned under `--free-ports`. Static defaults when running a
 single engine by hand: C++ `5300`, Lisp `5600`, Scala `5100` (universe
 allocation; a standalone Scala PE outside the universe defaults to its own
 port — always confirm via the registry), TypeScript Manager PE `3004`.
