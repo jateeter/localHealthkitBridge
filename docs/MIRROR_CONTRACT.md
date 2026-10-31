@@ -233,8 +233,10 @@ beside `healthkit-bridge`, against PIM and a local CSS:
 
 ## Decisions (owner, 2026-09-25)
 
-- **D2: the mirror blocks the MVP.** `release-v0.1.0` is not cut until the mirror
-  is built and its CI leg is green.
+- **D2: the mirror blocks the MVP.** The MVP release is not cut until the mirror
+  is built and its CI leg is green. (Named `release-v0.1.0` when decided; the
+  release was cut as `release-v0.0.1` on 2026-10-30, with `pim-mirror` passing
+  on both certifying lanes; RealityEngine_CI `releases/release-v0.0.1.md`.)
 - **D2a: owner approval for each batch** (§7a).
 - **D2b: every health metric goes to the PIM**, metrics are **added and removed
   dynamically** (no pre-loaded catalog), and the approved set is **honored**
