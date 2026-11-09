@@ -4,6 +4,9 @@ import XCTest
 /// The bridge's mirror client against a running PIM (MIRROR_CONTRACT §8),
 /// through PIM's public API only. Skipped unless `HEALTHKIT_PIM_WIRE_URL` is
 /// set; `HEALTHKIT_PIM_WIRE_TOKEN` is PIM's `PIM_HEALTHKIT_BRIDGE_TOKEN`.
+/// On a TLS lane (PIM#86) the URL is https and `HEALTHKIT_PIM_WIRE_CA` names the
+/// install CA (PEM): every request here verifies PIM against it, hostname
+/// included, and is held to TLS 1.3, without touching the Mac's trust store.
 ///
 /// The owner's approval of the metric set is made the way the owner UI would
 /// make it, with the owner-approval header; the bridge itself never sends that
@@ -11,6 +14,8 @@ import XCTest
 final class PIMWireTests: XCTestCase {
     private var baseURL: URL!
     private var token: String?
+    private var anchors: [Data] = []
+    private var session: URLSession = .shared
 
     override func setUpWithError() throws {
         let env = ProcessInfo.processInfo.environment
@@ -19,10 +24,18 @@ final class PIMWireTests: XCTestCase {
         }
         baseURL = url
         token = env["HEALTHKIT_PIM_WIRE_TOKEN"]
+        if let caPath = env["HEALTHKIT_PIM_WIRE_CA"], !caPath.isEmpty {
+            let pem = try String(contentsOfFile: caPath, encoding: .utf8)
+            anchors = AnchoredTrustDelegate.derCertificates(fromPEM: pem)
+            XCTAssertFalse(anchors.isEmpty, "no certificate in HEALTHKIT_PIM_WIRE_CA \(caPath)")
+            let configuration = URLSessionConfiguration.ephemeral
+            IngestClient.applyTransportProfile(to: configuration)
+            session = URLSession(configuration: configuration, delegate: AnchoredTrustDelegate(anchorsDER: anchors), delegateQueue: nil)
+        }
     }
 
     private func client() -> PIMClient {
-        PIMClient(configuration: PIMConfiguration(pimBaseURL: baseURL, bridgeId: "wire-test", pimToken: token, retryDelays: []))
+        PIMClient(configuration: PIMConfiguration(pimBaseURL: baseURL, bridgeId: "wire-test", pimToken: token, retryDelays: []), trustAnchorsDER: anchors)
     }
 
     /// What the owner UI does: change the approved set, with approval.
@@ -33,7 +46,7 @@ final class PIMWireTests: XCTestCase {
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.setValue("true", forHTTPHeaderField: PIMClient.ownerApprovalHeader)
         request.httpBody = try JSONSerialization.data(withJSONObject: ["action": action, "metrics": metrics])
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await session.data(for: request)
         return (response as? HTTPURLResponse)?.statusCode ?? -1
     }
 
@@ -93,7 +106,7 @@ final class PIMWireTests: XCTestCase {
         bare.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token { bare.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         bare.httpBody = try JSONEncoder().encode(MirrorBatch(samples: [hrSample("d-\(suite)", 64, at: 120)]))
-        let (_, bareResponse) = try await URLSession.shared.data(for: bare)
+        let (_, bareResponse) = try await session.data(for: bare)
         XCTAssertEqual((bareResponse as? HTTPURLResponse)?.statusCode, 403)
 
         // The owner changes the set: the bridge's batch is stale (409), and
@@ -110,7 +123,7 @@ final class PIMWireTests: XCTestCase {
         XCTAssertEqual(ledger.state(of: "e-\(suite)"), .pendingMirror)
 
         // A wrong token is refused.
-        let intruder = PIMClient(configuration: PIMConfiguration(pimBaseURL: baseURL, pimToken: "wrong", retryDelays: []))
+        let intruder = PIMClient(configuration: PIMConfiguration(pimBaseURL: baseURL, pimToken: "wrong", retryDelays: []), trustAnchorsDER: anchors)
         if token != nil {
             do {
                 _ = try await intruder.metrics()

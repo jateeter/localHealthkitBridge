@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import MobileSolidCompatModel
+import HealthKitBridge
 
 struct PatientInformationSource: Identifiable, Equatable {
     enum Kind {
@@ -95,6 +96,14 @@ struct DailyPlannedActivity: Identifiable, Equatable {
 
 @MainActor
 final class MobilePodModel: ObservableObject {
+    /// PIM calls from the app, held to TLS 1.3 when PIM is https (PIM#86); the
+    /// phone trusts the install CA through its configuration profile.
+    nonisolated static let pimSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        IngestClient.applyTransportProfile(to: configuration)
+        return URLSession(configuration: configuration)
+    }()
+
     static let defaultLocalPIMBaseURL = "http://localhost:18080"
     static let defaultIssuerURL = "http://css.localhost:13000/"
     static let defaultOwnerStorageIRI = "http://css.localhost:13000/jateeter/"
@@ -319,7 +328,7 @@ final class MobilePodModel: ObservableObject {
         do {
             var request = URLRequest(url: healthURL)
             request.timeoutInterval = 2
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await Self.pimSession.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 lastStatusMessage = "Local PIM status is not reachable at \(healthURL.absoluteString)."
                 return
@@ -737,7 +746,7 @@ final class MobilePodModel: ObservableObject {
             var request = URLRequest(url: resourceURL)
             request.timeoutInterval = 15
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await Self.pimSession.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 return PodDomainHydrationResult(domainID: domainID, records: nil)
             }
