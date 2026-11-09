@@ -34,6 +34,40 @@ case "$PE_BASE_URL" in
     exit 1 ;;
 esac
 
+# Lane TLS (localHealthkitBridge#52). An https PE serves the device routes
+# (healthkit ingest, /status, /scope) on TLS 1.3 without a client certificate,
+# as the phone calls them, and answers every other route 403 without a lane
+# client certificate (RealityEngine_CI docs/TRANSPORT_SECURITY.md). So the
+# preflight reads /status the way the phone does, and the checks on
+# /api/sources and /api/integrations/status present the harness's certificate:
+# RE_HARNESS_TLS_* (exported by the RealityEngine_CI harness when the lane is
+# on), else the lane PKI's own files.
+pe_device() { curl -sf "$@"; }
+pe_service() { curl -sf "$@"; }
+case "$PE_BASE_URL" in
+  https://*)
+    pki="${RE_PKI_DIR:-$HOME/.reality-engine/pki/${RE_PKI_LANE:-native}}"
+    TLS_CA="${RE_HARNESS_TLS_CA:-$pki/ca/ca.crt}"
+    TLS_CERT="${RE_HARNESS_TLS_CERT:-$pki/issued/harness/chain.pem}"
+    TLS_KEY="${RE_HARNESS_TLS_KEY:-$pki/issued/harness/key.pem}"
+    for f in "$TLS_CA" "$TLS_CERT" "$TLS_KEY"; do
+      [ -r "$f" ] || { echo "https PE, but $f is not readable: set RE_HARNESS_TLS_CA/CERT/KEY or RE_PKI_DIR." >&2; exit 1; }
+    done
+    # macOS's /usr/bin/curl (LibreSSL) cannot complete a handshake under the
+    # profile; use a curl built on OpenSSL or another TLS 1.3 library, as
+    # RealityEngine_CI's lane_curl does.
+    TLS_CURL=""
+    for c in /opt/homebrew/opt/curl/bin/curl /usr/local/opt/curl/bin/curl "$(command -v curl 2>/dev/null || true)"; do
+      [ -n "$c" ] && [ -x "$c" ] || continue
+      if "$c" -V 2>/dev/null | head -1 | grep -q -E "OpenSSL|BoringSSL|GnuTLS|wolfSSL|rustls"; then TLS_CURL="$c"; break; fi
+    done
+    [ -n "$TLS_CURL" ] || { echo "https PE, but no TLS 1.3-capable curl: install Homebrew curl (brew install curl)." >&2; exit 1; }
+    pe_device() { "$TLS_CURL" -sf --tlsv1.3 --tls-max 1.3 --cacert "$TLS_CA" "$@"; }
+    pe_service() { "$TLS_CURL" -sf --tlsv1.3 --tls-max 1.3 --cacert "$TLS_CA" --cert "$TLS_CERT" --key "$TLS_KEY" "$@"; }
+    echo "── Lane TLS: the phone must trust $TLS_CA (scripts/ca_profile.sh, then full trust in Certificate Trust Settings)"
+    ;;
+esac
+
 [ -n "${DEVELOPMENT_TEAM:-}" ] || { echo "DEVELOPMENT_TEAM is required for device code signing." >&2; exit 1; }
 
 echo "── Device discovery"
@@ -46,8 +80,8 @@ rm -f "$DEVICE_JSON"
 echo "   $DEVICE_NAME ($DEVICE_ID)"
 
 echo "── PE preflight (from Mac): $PE_BASE_URL"
-curl -sf "$PE_BASE_URL/api/integrations/healthkit/status" | jq -e '.ingestEndpoint == "/api/integrations/healthkit/ingest"' > /dev/null
-registry_status="$(curl -sf "$PE_BASE_URL/api/integrations/status" 2>/dev/null || true)"
+pe_device "$PE_BASE_URL/api/integrations/healthkit/status" | jq -e '.ingestEndpoint == "/api/integrations/healthkit/ingest"' > /dev/null
+registry_status="$(pe_service "$PE_BASE_URL/api/integrations/status" 2>/dev/null || true)"
 if [ -z "$registry_status" ] || ! jq -e '
   ([.sourceMappings[]?.id] | (
     index("healthkit:HKCorrelationTypeIdentifierBloodPressure") != null and
@@ -68,7 +102,7 @@ EOF
   exit 1
 fi
 
-before="$(curl -sf "$PE_BASE_URL/api/sources" \
+before="$(pe_service "$PE_BASE_URL/api/sources" \
   | jq -c '[.sources[] | select(.origin == "healthkit")] | sort_by(.sensorId)')"
 
 echo "── Generate + build (team $DEVELOPMENT_TEAM)"
@@ -101,15 +135,15 @@ echo "── Waiting for sensors to land"
 found=0
 for i in $(seq 1 20); do
   sleep 2
-  found=$(curl -sf "$PE_BASE_URL/api/sources" | jq '[.sources[] | select(.origin == "healthkit")] | length' 2>/dev/null || echo 0)
-  after="$(curl -sf "$PE_BASE_URL/api/sources" \
+  found=$(pe_service "$PE_BASE_URL/api/sources" | jq '[.sources[] | select(.origin == "healthkit")] | length' 2>/dev/null || echo 0)
+  after="$(pe_service "$PE_BASE_URL/api/sources" \
     | jq -c '[.sources[] | select(.origin == "healthkit")] | sort_by(.sensorId)' 2>/dev/null || echo '[]')"
   [ "$found" -ge 3 ] && [ "$after" != "$before" ] && break
 done
 [ "$found" -ge 3 ] || { echo "FAIL: expected ≥3 healthkit sensors, saw $found"; exit 1; }
 [ "$after" != "$before" ] && changed="updated by this run" || changed="WARNING: unchanged since before the run"
 
-curl -sf "$PE_BASE_URL/api/sources" \
+pe_service "$PE_BASE_URL/api/sources" \
   | jq -r '.sources[] | select(.origin == "healthkit") | "  \(.sensorId) @ [\(.region.offset):\(.region.offset + .region.length)] = \(.lastValue)"'
 echo "PASS: $found healthkit sensors live on the PE ($changed)"
 

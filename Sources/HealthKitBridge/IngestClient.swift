@@ -23,9 +23,24 @@ public actor IngestClient {
         }
     ) {
         sessionConfiguration.timeoutIntervalForRequest = configuration.requestTimeout
+        Self.applyTransportProfile(to: sessionConfiguration)
         self.configuration = configuration
         self.session = URLSession(configuration: sessionConfiguration)
         self.sleeper = sleeper
+    }
+
+    /// Holds an `https` PE to TLS 1.3, the only version the install's transport
+    /// profile accepts (RealityEngine_CI `config/transport-profile.json`,
+    /// localHealthkitBridge#52). The server is verified by the OS trust store,
+    /// which holds the install CA once its configuration profile is installed
+    /// and fully trusted (docs/INGEST_CONTRACT.md, "Transport"); verification
+    /// is never disabled. A plain `http` PE (a lane with RE_TLS off) is
+    /// unaffected.
+    public static func applyTransportProfile(to sessionConfiguration: URLSessionConfiguration) {
+        #if !canImport(FoundationNetworking)
+        sessionConfiguration.tlsMinimumSupportedProtocolVersion = .TLSv13
+        sessionConfiguration.tlsMaximumSupportedProtocolVersion = .TLSv13
+        #endif
     }
 
     public func ingest(
