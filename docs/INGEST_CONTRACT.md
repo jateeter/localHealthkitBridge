@@ -1,6 +1,6 @@
 # HealthKit Ingest Contract (canonical)
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-11-09
 
 This is the single source of truth for the bridge ↔ Perception Engine ingest
 contract. All four PE runtimes (C++, Lisp, Scala, TypeScript Manager PE)
@@ -224,6 +224,46 @@ bridge, newest last, capped at 32.
 
 HTTP status: `200` all resolved · `207` partial · `400` all unmapped ·
 `401` bad token.
+
+## Transport
+
+With the lane's TLS on (`RE_TLS=on`, RealityEngine_CI#668), the PE URL is
+`https` on the same port, with no plaintext listener beside it. The rules come
+from RealityEngine_CI `config/transport-profile.json` and
+`docs/TRANSPORT_SECURITY.md`; for this link (`iphone-to-pe` in
+`config/transport-inventory.json`) they are:
+
+- **TLS 1.3 only**, with the profile's cipher suites and key-exchange groups.
+  The bridge holds its session to TLS 1.3 (`IngestClient.applyTransportProfile`).
+- **Server TLS, not mTLS.** The device routes, `POST …/healthkit/ingest`,
+  `GET …/healthkit/status` and `POST …/healthkit/scope`, are served without a
+  client certificate and authenticated by the bridge token (above). Every other
+  PE route answers `403` `{"error":"client certificate required"}` without a
+  lane client certificate. `…/healthkit/resync` is a service's call and needs
+  one.
+- **The PE is verified by the phone's trust store, never skipped.** Its
+  certificate is issued by the install's own CA and names the host's LAN
+  address, which is the address the instance registry publishes. The phone
+  trusts that CA through a configuration profile the owner installs:
+
+  ```bash
+  scripts/ca_profile.sh --out RealityEngine-CA.mobileconfig
+  ```
+
+  AirDrop the profile to the iPhone, install it (Settings › General › VPN &
+  Device Management), then turn on full trust for it (Settings › General ›
+  About › Certificate Trust Settings). Without full trust iOS keeps the
+  certificate but does not trust it for TLS, and every delivery fails with a
+  trust error. A new CA (a reinstall) needs a new profile.
+
+With the lane off the URL is `http` and the bridge behaves as before; the app's
+`NSAllowsLocalNetworking` keeps that working for LAN addresses.
+
+`scripts/e2e_device.sh` follows the URL's scheme. On `https` it reads
+`/status` the way the phone does, without a client certificate, and checks
+`/api/sources` and `/api/integrations/status` with the harness's certificate
+(`RE_HARNESS_TLS_CA/CERT/KEY`, else the lane PKI under
+`~/.reality-engine/pki/<lane>`).
 
 ## Discovering the PE
 

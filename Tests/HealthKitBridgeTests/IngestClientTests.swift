@@ -190,4 +190,17 @@ final class IngestClientTests: XCTestCase {
         let request = try XCTUnwrap(MockURLProtocol.captured.first)
         XCTAssertEqual(request.url?.path, "/api/integrations/healthkit/status")
     }
+
+    /// localHealthkitBridge#52: an https PE is held to TLS 1.3 and nothing else.
+    func testSessionIsHeldToTLS13() {
+        #if !canImport(FoundationNetworking)
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        _ = IngestClient(
+            configuration: BridgeConfiguration(peBaseURL: URL(string: "https://192.168.1.10:3004")!),
+            sessionConfiguration: sessionConfiguration
+        )
+        XCTAssertEqual(sessionConfiguration.tlsMinimumSupportedProtocolVersion, .TLSv13)
+        XCTAssertEqual(sessionConfiguration.tlsMaximumSupportedProtocolVersion, .TLSv13)
+        #endif
+    }
 }
