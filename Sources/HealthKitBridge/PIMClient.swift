@@ -62,16 +62,38 @@ public actor PIMClient {
     private let session: URLSession
     private let sleeper: @Sendable (TimeInterval) async -> Void
 
+    /// An https PIM is held to TLS 1.3 (`IngestClient.applyTransportProfile`,
+    /// PIM#86). The server is verified by the OS trust store, which on the
+    /// phone holds the install CA through its configuration profile.
+    ///
+    /// `trustAnchorsDER` adds certificates (DER) to verify against instead of
+    /// the OS store, with the hostname check still on: for a Mac-side test of
+    /// a TLS lane (`PIMWireTests`, `HEALTHKIT_PIM_WIRE_CA`), where changing the
+    /// Mac's trust store is the owner's step. Verification is never disabled.
     public init(
         configuration: PIMConfiguration,
         sessionConfiguration: URLSessionConfiguration = .ephemeral,
+        trustAnchorsDER: [Data] = [],
         sleeper: @escaping @Sendable (TimeInterval) async -> Void = { seconds in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         }
     ) {
         self.configuration = configuration
         sessionConfiguration.timeoutIntervalForRequest = configuration.requestTimeout
+        IngestClient.applyTransportProfile(to: sessionConfiguration)
+        #if canImport(Security)
+        if !trustAnchorsDER.isEmpty {
+            self.session = URLSession(
+                configuration: sessionConfiguration,
+                delegate: AnchoredTrustDelegate(anchorsDER: trustAnchorsDER),
+                delegateQueue: nil
+            )
+        } else {
+            self.session = URLSession(configuration: sessionConfiguration)
+        }
+        #else
         self.session = URLSession(configuration: sessionConfiguration)
+        #endif
         self.sleeper = sleeper
     }
 
