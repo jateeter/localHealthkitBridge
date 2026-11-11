@@ -83,8 +83,8 @@ case "$PIM_BASE_URL" in
   *127.0.0.1*|*localhost*)
     echo "PIM_BASE_URL is loopback ($PIM_BASE_URL) — the phone cannot reach it. Use the Mac's LAN IP." >&2
     exit 1 ;;
-  https://*|http://*) ;;
-  *) echo "PIM_BASE_URL must be an http(s) URL: $PIM_BASE_URL" >&2; exit 1 ;;
+  https://*) ;;
+  *) echo "PIM_BASE_URL must be https (PIM serves TLS 1.3 on the lane): $PIM_BASE_URL" >&2; exit 1 ;;
 esac
 
 echo "── Device discovery"
