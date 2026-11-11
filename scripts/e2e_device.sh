@@ -6,7 +6,13 @@
 #
 # Usage:
 #   DEVELOPMENT_TEAM=ABCDE12345 [PE_BASE_URL=http://<lan-ip>:3004] \
-#     [HEALTHKIT_BRIDGE_TOKEN=...] ./scripts/e2e_device.sh
+#     [HEALTHKIT_BRIDGE_TOKEN=...] [PIM_BASE_URL=https://<lan-ip>:<port>] \
+#     ./scripts/e2e_device.sh
+#
+# With PIM_BASE_URL the launch also points the app at that PIM (the
+# healthkit-to-pim link, #52): the app reads PIM's /healthz and its resident
+# records on launch, and the run passes only if the app reports it linked and
+# synchronized. The app prints flags only; its console is captured for them.
 #
 # Requires: Xcode, xcodegen, jq, a connected + paired iPhone (Developer
 # Mode enabled), and an Apple Developer team for code signing.
@@ -70,6 +76,17 @@ esac
 
 [ -n "${DEVELOPMENT_TEAM:-}" ] || { echo "DEVELOPMENT_TEAM is required for device code signing." >&2; exit 1; }
 
+PIM_BASE_URL="${PIM_BASE_URL:-}"
+PIM_BASE_URL="${PIM_BASE_URL%/}"
+case "$PIM_BASE_URL" in
+  "") ;;
+  *127.0.0.1*|*localhost*)
+    echo "PIM_BASE_URL is loopback ($PIM_BASE_URL) — the phone cannot reach it. Use the Mac's LAN IP." >&2
+    exit 1 ;;
+  https://*|http://*) ;;
+  *) echo "PIM_BASE_URL must be an http(s) URL: $PIM_BASE_URL" >&2; exit 1 ;;
+esac
+
 echo "── Device discovery"
 DEVICE_JSON="$(mktemp)"
 xcrun devicectl list devices --json-output "$DEVICE_JSON" > /dev/null
@@ -123,17 +140,33 @@ xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH"
 ENV_JSON="$(jq -n \
   --arg peBaseUrl "$PE_BASE_URL" \
   --arg bridgeToken "${HEALTHKIT_BRIDGE_TOKEN:-}" \
-  '{AUTO_TEST_PUSH:"1", PE_BASE_URL:$peBaseUrl} + (if $bridgeToken == "" then {} else {HEALTHKIT_BRIDGE_TOKEN:$bridgeToken, BRIDGE_TOKEN:$bridgeToken} end)')"
-xcrun devicectl device process launch --terminate-existing --device "$DEVICE_ID" \
-  --environment-variables "$ENV_JSON" \
-  "$BUNDLE_ID" \
-  -- \
-  -autoTestPush 1 \
-  -peBaseURL "$PE_BASE_URL"
+  --arg pimBaseUrl "$PIM_BASE_URL" \
+  '{AUTO_TEST_PUSH:"1", PE_BASE_URL:$peBaseUrl}
+   + (if $bridgeToken == "" then {} else {HEALTHKIT_BRIDGE_TOKEN:$bridgeToken, BRIDGE_TOKEN:$bridgeToken} end)
+   + (if $pimBaseUrl == "" then {} else {LOCAL_PIM_BASE_URL:$pimBaseUrl} end)')"
+LAUNCH_ARGS=(-autoTestPush 1 -peBaseURL "$PE_BASE_URL")
+CONSOLE_LOG=""
+CONSOLE_PID=""
+if [ -n "$PIM_BASE_URL" ]; then
+  # A fresh synchronization, not last run's cached snapshot.
+  LAUNCH_ARGS+=(-localPIMBaseURL "$PIM_BASE_URL" -clearPodHydrationCache 1)
+  CONSOLE_LOG="$(mktemp)"
+  # --console stays attached for the app's life; it is stopped once the probe
+  # line arrives (or the wait below gives up).
+  xcrun devicectl device process launch --terminate-existing --console --device "$DEVICE_ID" \
+    --environment-variables "$ENV_JSON" \
+    "$BUNDLE_ID" -- "${LAUNCH_ARGS[@]}" >"$CONSOLE_LOG" 2>&1 &
+  CONSOLE_PID=$!
+  trap '[ -n "$CONSOLE_PID" ] && kill "$CONSOLE_PID" 2>/dev/null; [ -n "$CONSOLE_LOG" ] && rm -f "$CONSOLE_LOG"' EXIT
+else
+  xcrun devicectl device process launch --terminate-existing --device "$DEVICE_ID" \
+    --environment-variables "$ENV_JSON" \
+    "$BUNDLE_ID" -- "${LAUNCH_ARGS[@]}"
+fi
 
 echo "── Waiting for sensors to land"
 found=0
-for i in $(seq 1 20); do
+for _ in $(seq 1 20); do
   sleep 2
   found=$(pe_service "$PE_BASE_URL/api/sources" | jq '[.sources[] | select(.origin == "healthkit")] | length' 2>/dev/null || echo 0)
   after="$(pe_service "$PE_BASE_URL/api/sources" \
@@ -146,6 +179,23 @@ done
 pe_service "$PE_BASE_URL/api/sources" \
   | jq -r '.sources[] | select(.origin == "healthkit") | "  \(.sensorId) @ [\(.region.offset):\(.region.offset + .region.length)] = \(.lastValue)"'
 echo "PASS: $found healthkit sensors live on the PE ($changed)"
+
+if [ -n "$PIM_BASE_URL" ]; then
+  echo "── PIM leg: the app at $PIM_BASE_URL"
+  probe=""
+  for _ in $(seq 1 30); do
+    probe="$(grep -m1 'HealthKitBridge PIM probe' "$CONSOLE_LOG" 2>/dev/null || true)"
+    [ -n "$probe" ] && break
+    sleep 2
+  done
+  kill "$CONSOLE_PID" 2>/dev/null || true
+  [ -n "$probe" ] || { echo "FAIL: the app printed no PIM probe line within 60 s"; exit 1; }
+  echo "   ${probe#*HealthKitBridge }"
+  case "$probe" in
+    *"linked=true synchronized=true"*) echo "PASS: the phone reached PIM and synchronized from it" ;;
+    *) echo "FAIL: the phone did not link to and synchronize from PIM (on https, check the CA profile is installed and fully trusted)"; exit 1 ;;
+  esac
+fi
 
 cat <<'CHECKLIST'
 
