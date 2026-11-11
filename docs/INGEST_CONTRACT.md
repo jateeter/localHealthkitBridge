@@ -265,6 +265,13 @@ With the lane off the URL is `http` and the bridge behaves as before; the app's
 (`RE_HARNESS_TLS_CA/CERT/KEY`, else the lane PKI under
 `~/.reality-engine/pki/<lane>`).
 
+The phone's other link, to PIM (`healthkit-to-pim`), uses the same transport
+profile and the same installed CA. PIM's certificate must name the Mac's LAN
+address: OpenCommons-Health PIM's `scripts/lane-tls-certs.sh --ip <lan-ip>`.
+With `PIM_BASE_URL` set, `scripts/e2e_device.sh` also points the app at that PIM.
+It passes only if the app reports, on its console, that it linked to PIM and
+synchronized from it on launch.
+
 ## Discovering the PE
 
 Prefer the runtime registry (field `instances[].pe_url`) over hard-coded

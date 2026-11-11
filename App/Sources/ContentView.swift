@@ -59,6 +59,10 @@ struct ContentView: View {
         .task {
             await bridge.refreshNotificationStatus()
             await mobilePod.refreshLocalPIMStatus()
+            // e2e hook (scripts/e2e_device.sh with PIM_BASE_URL): whether this
+            // launch reached PIM and synchronized from it. Flags only — no URL,
+            // record or count, since the console is captured off the device.
+            print("HealthKitBridge PIM probe linked=\(mobilePod.session.authenticated) synchronized=\(mobilePod.hasSynchronizedPodData)")
         }
     }
 }

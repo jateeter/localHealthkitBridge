@@ -40,7 +40,7 @@ swift test
 HEALTHKIT_PIM_WIRE_URL=... [HEALTHKIT_PIM_WIRE_TOKEN=...] swift test --filter PIMWireTests  # mirror leg against a running PIM
 PE_BASE_URL=... [HEALTHKIT_BRIDGE_TOKEN=...] ./scripts/e2e_simulator.sh   # test-batch leg
 PE_BASE_URL=... [HEALTHKIT_BRIDGE_TOKEN=...] ./scripts/e2e_seeded.sh      # seeded XCUITest leg
-DEVELOPMENT_TEAM=... [PE_BASE_URL=http://<lan-ip>:...] ./scripts/e2e_device.sh  # physical device leg (M5); https on a TLS lane
+DEVELOPMENT_TEAM=... [PE_BASE_URL=http://<lan-ip>:...] [PIM_BASE_URL=https://<lan-ip>:...] ./scripts/e2e_device.sh  # physical device leg (M5); https on a TLS lane; PIM_BASE_URL adds the phone → PIM leg (#52)
 ./scripts/ca_profile.sh [--ca PATH] [--out PATH]   # the install CA as an iOS profile; installing it is the owner's step
 ```
 
