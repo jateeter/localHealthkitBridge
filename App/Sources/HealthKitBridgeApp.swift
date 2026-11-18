@@ -15,6 +15,11 @@ final class BridgeAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // Line-buffered stdout: the e2e runs read the app's console through
+        // `devicectl --console` and stop it with SIGTERM, which discarded the
+        // block buffer, so a delivery's outcome was missing from the log while
+        // earlier lines were there (RealityEngine_CI regression 20261118T210559Z).
+        setvbuf(stdout, nil, _IOLBF, 0)
         Task { @MainActor in
             print("HealthKitBridge didFinishLaunching state=\(application.applicationState.rawValue)")
             await BridgeModel.shared.restoreHealthKitRuntimeState()

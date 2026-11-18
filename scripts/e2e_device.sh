@@ -164,9 +164,17 @@ else
     "$BUNDLE_ID" -- "${LAUNCH_ARGS[@]}"
 fi
 
-echo "── Waiting for sensors to land"
+# The wait covers the app's own delivery schedule: IngestClient tries 4 times
+# with a 15 s request timeout and 2/4/8 s between (BridgeConfiguration), about
+# 74 s at worst. A 40 s wait failed runs whose first, cold connection took
+# longer, while the app was still retrying (RealityEngine_CI regressions
+# 20261118T200839Z and 20261118T210559Z; the same launch delivered in seconds
+# once the phone's path was warm). It still stops at the first sign of the
+# batch.
+WAIT_S="${HEALTHKIT_E2E_WAIT_S:-120}"
+echo "── Waiting for sensors to land (up to ${WAIT_S}s)"
 found=0
-for _ in $(seq 1 20); do
+for _ in $(seq 1 $((WAIT_S / 2))); do
   sleep 2
   found=$(pe_service "$PE_BASE_URL/api/sources" | jq '[.sources[] | select(.origin == "healthkit")] | length' 2>/dev/null || echo 0)
   after="$(pe_service "$PE_BASE_URL/api/sources" \
