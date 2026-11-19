@@ -63,6 +63,17 @@ struct ContentView: View {
             // launch reached PIM and synchronized from it. Flags only — no URL,
             // record or count, since the console is captured off the device.
             print("HealthKitBridge PIM probe linked=\(mobilePod.session.authenticated) synchronized=\(mobilePod.hasSynchronizedPodData)")
+#if DEBUG
+            // e2e hook (scripts/e2e_device.sh with PIM_BASE_URL): a synthetic
+            // batch through the phone's mirror. Debug builds only, as is the
+            // unattended approval (owner decision, 2026-11-19).
+            if launchArgumentBool(for: "autoTestMirror") {
+                await MirrorModel.shared.autoTestMirror(
+                    baseURL: mobilePod.localPIMBaseURL,
+                    token: mobilePod.pimToken,
+                    autoApprove: launchArgumentBool(for: "autoApproveMirrorBatch"))
+            }
+#endif
         }
     }
 }

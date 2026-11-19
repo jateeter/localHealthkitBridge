@@ -50,6 +50,21 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             -derivedDataPath .build-ci-device
 
+      # The unattended mirror approval and the other test hooks are Debug-only
+      # (RealityEngine_CI#808): a Release build must not carry them.
+      - name: Release build carries no Debug-only hook
+        working-directory: App
+        run: |
+          xcodebuild build \
+            -project HealthKitBridgeApp.xcodeproj \
+            -scheme HealthKitBridgeApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            -derivedDataPath .build-ci-release
+          bash ../scripts/check_release_flags.sh "$(find .build-ci-release/Build/Products -name HealthKitBridgeApp.app -type d | head -1)"
+
       # Build the simulator test bundle as a bounded smoke compile. Hosted
       # CoreSimulator can wedge before the test runner launches; the generic iOS
       # build above remains the blocking app compile gate.

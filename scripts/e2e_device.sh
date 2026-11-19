@@ -13,6 +13,17 @@
 # healthkit-to-pim link, #52): the app reads PIM's /healthz and its resident
 # records on launch, and the run passes only if the app reports it linked and
 # synchronized. The app prints flags only; its console is captured for them.
+# PIM_BASE_URL is PIM's device listener (PIM#91), which requires the bridge
+# token on hydration: PIM_TOKEN, default HEALTHKIT_BRIDGE_TOKEN, reaches the
+# app as an environment variable, never as an argument.
+#
+# With PIM_OWNER_URL as well (PIM's loopback API, reached from this Mac) the
+# run also mirrors from the phone (#58, RealityEngine_CI#808): acting as the
+# owner, the script declares and approves two test metrics on that API; the
+# app (a Debug build) stages a synthetic batch, never the owner's Health data,
+# previews it and applies it with -autoApproveMirrorBatch, the unattended
+# approval Release builds compile out (owner decision, 2026-11-19); and the
+# run passes only if the app reports at least one record applied.
 #
 # Requires: Xcode, xcodegen, jq, a connected + paired iPhone (Developer
 # Mode enabled), and an Apple Developer team for code signing.
@@ -78,6 +89,17 @@ esac
 
 PIM_BASE_URL="${PIM_BASE_URL:-}"
 PIM_BASE_URL="${PIM_BASE_URL%/}"
+PIM_TOKEN="${PIM_TOKEN:-${HEALTHKIT_BRIDGE_TOKEN:-}}"
+PIM_OWNER_URL="${PIM_OWNER_URL:-}"
+PIM_OWNER_URL="${PIM_OWNER_URL%/}"
+if [ -n "$PIM_OWNER_URL" ]; then
+  [ -n "$PIM_BASE_URL" ] || { echo "PIM_OWNER_URL needs PIM_BASE_URL: the phone mirrors through PIM's device listener." >&2; exit 1; }
+  [ -n "$PIM_TOKEN" ] || { echo "PIM_OWNER_URL needs PIM_TOKEN (or HEALTHKIT_BRIDGE_TOKEN): the mirror routes require the bridge token." >&2; exit 1; }
+  case "$PIM_OWNER_URL" in
+    https://*) ;;
+    *) echo "PIM_OWNER_URL must be https (PIM serves TLS 1.3 on the lane): $PIM_OWNER_URL" >&2; exit 1 ;;
+  esac
+fi
 case "$PIM_BASE_URL" in
   "") ;;
   *127.0.0.1*|*localhost*)
@@ -122,6 +144,23 @@ fi
 before="$(pe_service "$PE_BASE_URL/api/sources" \
   | jq -c '[.sources[] | select(.origin == "healthkit")] | sort_by(.sensorId)')"
 
+# The mirror's test metrics, approved by the owner before the app runs: the
+# app stages only `active` metrics (MIRROR_CONTRACT §7). PIM's loopback API is
+# server TLS, so pe_device's client (the lane CA, no client certificate) fits.
+MIRROR_METRICS='["HKQuantityTypeIdentifierHeartRate","HKQuantityTypeIdentifierStepCount"]'
+pim_owner() { pe_device -H "Authorization: Bearer $PIM_TOKEN" -H 'Content-Type: application/json' "$@"; }
+if [ -n "$PIM_OWNER_URL" ]; then
+  echo "── PIM owner setup (from Mac): approve the mirror's test metrics"
+  pim_owner -X POST "$PIM_OWNER_URL/api/integrations/healthkit/metrics" --data "$(jq -cn '{action:"declare", descriptors:[
+    {metric:"HKQuantityTypeIdentifierHeartRate", kind:"quantity", unit:"/min", loinc:"8867-4", fhirCategory:"vital-signs", appleCategory:"Heart", display:"Heart rate"},
+    {metric:"HKQuantityTypeIdentifierStepCount", kind:"quantity", unit:"count", loinc:"55423-8", fhirCategory:"activity", appleCategory:"Activity", display:"Steps"}]}')" >/dev/null \
+    || { echo "FAIL: PIM refused the test metrics' declaration at $PIM_OWNER_URL"; exit 1; }
+  pim_owner -X POST -H 'x-opencommons-owner-approved: true' "$PIM_OWNER_URL/api/integrations/healthkit/metrics" \
+    --data "$(jq -cn --argjson m "$MIRROR_METRICS" '{action:"add", metrics:$m}')" >/dev/null \
+    || { echo "FAIL: PIM refused the owner's approval of the test metrics at $PIM_OWNER_URL"; exit 1; }
+  echo "   approved: $(jq -r 'join(", ")' <<<"$MIRROR_METRICS")"
+fi
+
 echo "── Generate + build (team $DEVELOPMENT_TEAM)"
 cd "$REPO_ROOT/App"
 xcodegen generate --quiet
@@ -141,15 +180,18 @@ ENV_JSON="$(jq -n \
   --arg peBaseUrl "$PE_BASE_URL" \
   --arg bridgeToken "${HEALTHKIT_BRIDGE_TOKEN:-}" \
   --arg pimBaseUrl "$PIM_BASE_URL" \
+  --arg pimToken "$PIM_TOKEN" \
   '{AUTO_TEST_PUSH:"1", PE_BASE_URL:$peBaseUrl}
    + (if $bridgeToken == "" then {} else {HEALTHKIT_BRIDGE_TOKEN:$bridgeToken, BRIDGE_TOKEN:$bridgeToken} end)
-   + (if $pimBaseUrl == "" then {} else {LOCAL_PIM_BASE_URL:$pimBaseUrl} end)')"
+   + (if $pimBaseUrl == "" then {} else {LOCAL_PIM_BASE_URL:$pimBaseUrl} end)
+   + (if $pimBaseUrl == "" or $pimToken == "" then {} else {HEALTHKIT_PIM_TOKEN:$pimToken} end)')"
 LAUNCH_ARGS=(-autoTestPush 1 -peBaseURL "$PE_BASE_URL")
 CONSOLE_LOG=""
 CONSOLE_PID=""
 if [ -n "$PIM_BASE_URL" ]; then
   # A fresh synchronization, not last run's cached snapshot.
   LAUNCH_ARGS+=(-localPIMBaseURL "$PIM_BASE_URL" -clearPodHydrationCache 1)
+  [ -n "$PIM_OWNER_URL" ] && LAUNCH_ARGS+=(-autoTestMirror 1 -autoApproveMirrorBatch 1)
   CONSOLE_LOG="$(mktemp)"
   # --console stays attached for the app's life; it is stopped once the probe
   # line arrives (or the wait below gives up).
@@ -196,13 +238,33 @@ if [ -n "$PIM_BASE_URL" ]; then
     [ -n "$probe" ] && break
     sleep 2
   done
-  kill "$CONSOLE_PID" 2>/dev/null || true
-  [ -n "$probe" ] || { echo "FAIL: the app printed no PIM probe line within 60 s"; exit 1; }
+  [ -n "$probe" ] || { kill "$CONSOLE_PID" 2>/dev/null || true; echo "FAIL: the app printed no PIM probe line within 60 s"; exit 1; }
   echo "   ${probe#*HealthKitBridge }"
   case "$probe" in
     *"linked=true synchronized=true"*) echo "PASS: the phone reached PIM and synchronized from it" ;;
-    *) echo "FAIL: the phone did not link to and synchronize from PIM (on https, check the CA profile is installed and fully trusted)"; exit 1 ;;
+    *) kill "$CONSOLE_PID" 2>/dev/null || true
+       echo "FAIL: the phone did not link to and synchronize from PIM (on https, check the CA profile is installed and fully trusted, and the PIM token)"; exit 1 ;;
   esac
+
+  if [ -n "$PIM_OWNER_URL" ]; then
+    echo "── Mirror leg: the phone previews and applies a synthetic batch"
+    outcome=""
+    for _ in $(seq 1 45); do
+      outcome="$(grep -m1 -E 'HealthKitBridge mirror (applied=|[a-z]+ failed)' "$CONSOLE_LOG" 2>/dev/null || true)"
+      [ -n "$outcome" ] && break
+      sleep 2
+    done
+    grep -m1 'HealthKitBridge mirror preview' "$CONSOLE_LOG" 2>/dev/null | sed 's/.*HealthKitBridge /   /' || true
+    kill "$CONSOLE_PID" 2>/dev/null || true
+    [ -n "$outcome" ] || { echo "FAIL: the app reported no mirror outcome within 90 s (is this a Debug build?)"; exit 1; }
+    echo "   ${outcome#*HealthKitBridge }"
+    applied="$(sed -n 's/.*mirror applied=\([0-9]*\).*/\1/p' <<<"$outcome")"
+    [ "${applied:-0}" -ge 1 ] || { echo "FAIL: the phone's mirror wrote nothing to the Pod"; exit 1; }
+    status="$(pe_device "$PIM_OWNER_URL/api/pod/healthkit/status" 2>/dev/null || true)"
+    [ -n "$status" ] && echo "   PIM HealthKit status: $(jq -c '.data // . | del(.. | strings | select(test("^https?://")))' <<<"$status" 2>/dev/null | head -c 400)"
+    echo "PASS: the phone mirrored $applied record(s) through PIM into the Pod"
+  fi
+  kill "$CONSOLE_PID" 2>/dev/null || true
 fi
 
 cat <<'CHECKLIST'
