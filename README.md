@@ -362,6 +362,29 @@ PE_BASE_URL=http://<mac-lan-ip>:3004 \
 ./scripts/e2e_device.sh
 ```
 
+With PIM, the same run checks the phone's link to PIM's device listener
+(PIM#91) and, with `PIM_OWNER_URL` (PIM's loopback API on this Mac), the
+mirror from the phone:
+
+```bash
+DEVELOPMENT_TEAM=YH5P86WUDA \
+PE_BASE_URL=https://<mac-lan-ip>:6300 \
+PIM_BASE_URL=https://<mac-lan-ip>:<pim-device-port> \
+PIM_OWNER_URL=https://localhost:<pim-port> \
+HEALTHKIT_BRIDGE_TOKEN=... \
+./scripts/e2e_device.sh
+```
+
+The script approves two test metrics as the owner, then the app (a Debug
+build) previews a **synthetic** batch, never your Health data, and applies it
+with `-autoApproveMirrorBatch`. That unattended approval exists only in Debug
+builds; `scripts/check_release_flags.sh` fails a Release build that carries it,
+and CI runs it. In the app, the mirror is in Settings → *Mirror to PIM*:
+declare the metrics, approve them in PIM, preview, then *Approve and apply*.
+Nothing reaches the Pod without that approval (MIRROR_CONTRACT §7). The PIM
+token (`PIM_TOKEN`, default `HEALTHKIT_BRIDGE_TOKEN`) is also sent on pod
+hydration, which PIM's device listener requires.
+
 The app and device script also accept pasted API URLs such as
 `http://<mac-lan-ip>:3004/api`; they normalize that input to the PE origin
 before calling the canonical HealthKit endpoints.

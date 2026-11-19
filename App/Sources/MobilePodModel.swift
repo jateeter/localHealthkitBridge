@@ -113,6 +113,9 @@ final class MobilePodModel: ObservableObject {
     @Published var pimRootPath: String
     @Published var redirectURI: String
     @Published var localPIMBaseURL: String
+    /// PIM's `PIM_HEALTHKIT_BRIDGE_TOKEN`: PIM's device listener requires it on
+    /// pod hydration and on the mirror routes (PIM#91, localHealthkitBridge#58).
+    @Published var pimToken: String
     @Published var allowInsecureLocalHTTP: Bool
     @Published private(set) var session: MobileSolidSessionSnapshot
     @Published private(set) var containers: [MobileSolidManagedContainer]
@@ -141,6 +144,12 @@ final class MobilePodModel: ObservableObject {
         pimRootPath = defaults.string(forKey: "mobileSolid.pimRootPath") ?? "health-pim/"
         redirectURI = defaults.string(forKey: "mobileSolid.redirectURI") ?? "opencommons-health:/solid/callback"
         localPIMBaseURL = resolvedLocalPIMBaseURL
+        let pimTokenOverride = launchArgumentValue(for: "pimToken") ?? environment["HEALTHKIT_PIM_TOKEN"]
+        let resolvedPIMToken = pimTokenOverride ?? defaults.string(forKey: "mobileSolid.pimToken") ?? ""
+        pimToken = resolvedPIMToken
+        if pimTokenOverride != nil {
+            defaults.set(resolvedPIMToken, forKey: "mobileSolid.pimToken")
+        }
         if localPIMOverride != nil {
             defaults.set(resolvedLocalPIMBaseURL, forKey: "mobileSolid.localPIMBaseURL")
         }
@@ -306,6 +315,7 @@ final class MobilePodModel: ObservableObject {
         defaults.set(pimRootPath, forKey: "mobileSolid.pimRootPath")
         defaults.set(redirectURI, forKey: "mobileSolid.redirectURI")
         defaults.set(localPIMBaseURL, forKey: "mobileSolid.localPIMBaseURL")
+        defaults.set(pimToken, forKey: "mobileSolid.pimToken")
         defaults.set(allowInsecureLocalHTTP, forKey: "mobileSolid.allowInsecureLocalHTTP")
 
         session = MobileSolidSessionSnapshot(
@@ -380,10 +390,11 @@ final class MobilePodModel: ObservableObject {
         defer { isHydratingPodData = false }
 
         let domainIDs = managedDomains.map(\.apiName)
+        let token = pimToken.trimmingCharacters(in: .whitespacesAndNewlines)
         let results = await withTaskGroup(of: PodDomainHydrationResult.self) { group in
             for domainID in domainIDs {
                 group.addTask {
-                    await Self.fetchResidentRecords(domainID: domainID, baseURL: baseURL)
+                    await Self.fetchResidentRecords(domainID: domainID, baseURL: baseURL, token: token)
                 }
             }
 
@@ -736,7 +747,9 @@ final class MobilePodModel: ObservableObject {
         }
     }
 
-    private nonisolated static func fetchResidentRecords(domainID: String, baseURL: URL) async -> PodDomainHydrationResult {
+    /// PIM's device listener requires the bridge token on hydration (PIM#91);
+    /// the loopback listener ignores it.
+    private nonisolated static func fetchResidentRecords(domainID: String, baseURL: URL, token: String) async -> PodDomainHydrationResult {
         guard let encodedDomain = domainID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let resourceURL = URL(string: "/api/resources/\(encodedDomain)", relativeTo: baseURL)?.absoluteURL else {
             return PodDomainHydrationResult(domainID: domainID, records: nil)
@@ -746,6 +759,9 @@ final class MobilePodModel: ObservableObject {
             var request = URLRequest(url: resourceURL)
             request.timeoutInterval = 15
             request.setValue("application/json", forHTTPHeaderField: "Accept")
+            if !token.isEmpty {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
             let (data, response) = try await Self.pimSession.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 return PodDomainHydrationResult(domainID: domainID, records: nil)

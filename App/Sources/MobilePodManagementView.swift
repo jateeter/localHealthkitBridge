@@ -1,13 +1,16 @@
 import SwiftUI
 import MobileSolidCompatModel
+import HealthKitBridge
 
 struct MobilePodManagementView: View {
     @ObservedObject var model: MobilePodModel
+    @ObservedObject private var mirror = MirrorModel.shared
     @State private var sharingRulesExpanded = false
 
     var body: some View {
         Form {
             connectionSection
+            mirrorSection
             ownerStatusSection
             sharingSection
             managedDomainsSection
@@ -41,6 +44,9 @@ struct MobilePodManagementView: View {
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+            SecureField("PIM bridge token", text: $model.pimToken)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
             Toggle("Allow insecure local HTTP", isOn: $model.allowInsecureLocalHTTP)
             Button("Save Pod settings") {
                 model.saveConfiguration()
@@ -52,6 +58,38 @@ struct MobilePodManagementView: View {
             Text("Solid Pod connection")
         } footer: {
             Text("Use localhost/docker CSS settings for MVP review. For physical iPhone testing, set the Local PIM base URL to the notebook LAN address. HTTPS remains required before non-local PHI mirroring.")
+        }
+    }
+
+    /// The HealthKit → PIM → POD mirror (MIRROR_CONTRACT §7): declare,
+    /// preview the owner-approved metrics, and write only on approval.
+    private var mirrorSection: some View {
+        Section {
+            Button("Declare Health metrics to PIM") {
+                Task { await mirror.declareMetrics(baseURL: model.localPIMBaseURL, token: model.pimToken) }
+            }
+            .disabled(mirror.busy)
+            Button("Preview from Apple Health") {
+                Task { await mirror.previewFromHealthKit(baseURL: model.localPIMBaseURL, token: model.pimToken) }
+            }
+            .disabled(mirror.busy)
+            if let preview = mirror.preview {
+                LabeledContent("New", value: "\(preview.summary.create)")
+                LabeledContent("Unchanged", value: "\(preview.summary.unchanged)")
+                LabeledContent("Conflicts", value: "\(preview.summary.conflict)")
+                LabeledContent("Excluded", value: "\(preview.summary.excluded)")
+                Button("Approve and apply") {
+                    Task { await mirror.approveAndApply() }
+                }
+                .disabled(mirror.busy)
+            }
+            Text(mirror.message)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("Mirror to PIM")
+        } footer: {
+            Text("Only metrics you have approved in PIM are read. Nothing is written to your Pod until you approve the preview of that batch.")
         }
     }
 
