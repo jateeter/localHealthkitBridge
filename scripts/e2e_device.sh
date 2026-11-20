@@ -147,18 +147,29 @@ before="$(pe_service "$PE_BASE_URL/api/sources" \
 # The mirror's test metrics, approved by the owner before the app runs: the
 # app stages only `active` metrics (MIRROR_CONTRACT §7). PIM's loopback API is
 # server TLS, so pe_device's client (the lane CA, no client certificate) fits.
+#
+# PIM pushes the approved set to every PE as the HealthKit scope, and a PE with
+# a declared scope refuses any type not in it (INGEST_CONTRACT.md, "Scope and
+# resync"). So the owner approves the connectivity batch's types too
+# (BridgeModel.sendTestBatch: blood pressure, a workout, sleep), or the PE
+# refuses that batch as unmapped (RealityEngine_CI e1-rc4-cert-20261120: 400,
+# unmapped=3, while the mirror passed).
 MIRROR_METRICS='["HKQuantityTypeIdentifierHeartRate","HKQuantityTypeIdentifierStepCount"]'
+INGEST_METRICS='["HKCorrelationTypeIdentifierBloodPressure","HKWorkoutTypeIdentifierWorkout","HKCategoryTypeIdentifierSleepAnalysis"]'
 pim_owner() { pe_device -H "Authorization: Bearer $PIM_TOKEN" -H 'Content-Type: application/json' "$@"; }
 if [ -n "$PIM_OWNER_URL" ]; then
   echo "── PIM owner setup (from Mac): approve the mirror's test metrics"
   pim_owner -X POST "$PIM_OWNER_URL/api/integrations/healthkit/metrics" --data "$(jq -cn '{action:"declare", descriptors:[
     {metric:"HKQuantityTypeIdentifierHeartRate", kind:"quantity", unit:"/min", loinc:"8867-4", fhirCategory:"vital-signs", appleCategory:"Heart", display:"Heart rate"},
-    {metric:"HKQuantityTypeIdentifierStepCount", kind:"quantity", unit:"count", loinc:"55423-8", fhirCategory:"activity", appleCategory:"Activity", display:"Steps"}]}')" >/dev/null \
+    {metric:"HKQuantityTypeIdentifierStepCount", kind:"quantity", unit:"count", loinc:"55423-8", fhirCategory:"activity", appleCategory:"Activity", display:"Steps"},
+    {metric:"HKCorrelationTypeIdentifierBloodPressure", kind:"correlation", unit:"mm[Hg]", loinc:"85354-9", fhirCategory:"vital-signs", appleCategory:"Heart", display:"Blood pressure"},
+    {metric:"HKWorkoutTypeIdentifierWorkout", kind:"workout", fhirCategory:"activity", appleCategory:"Activity", display:"Workout"},
+    {metric:"HKCategoryTypeIdentifierSleepAnalysis", kind:"category", appleCategory:"Sleep", display:"Sleep"}]}')" >/dev/null \
     || { echo "FAIL: PIM refused the test metrics' declaration at $PIM_OWNER_URL"; exit 1; }
   pim_owner -X POST -H 'x-opencommons-owner-approved: true' "$PIM_OWNER_URL/api/integrations/healthkit/metrics" \
-    --data "$(jq -cn --argjson m "$MIRROR_METRICS" '{action:"add", metrics:$m}')" >/dev/null \
+    --data "$(jq -cn --argjson m "$MIRROR_METRICS" --argjson i "$INGEST_METRICS" '{action:"add", metrics:($m + $i)}')" >/dev/null \
     || { echo "FAIL: PIM refused the owner's approval of the test metrics at $PIM_OWNER_URL"; exit 1; }
-  echo "   approved: $(jq -r 'join(", ")' <<<"$MIRROR_METRICS")"
+  echo "   approved: $(jq -r --argjson i "$INGEST_METRICS" '. + $i | join(", ")' <<<"$MIRROR_METRICS")"
 fi
 
 echo "── Generate + build (team $DEVELOPMENT_TEAM)"
@@ -199,7 +210,9 @@ if [ -n "$PIM_BASE_URL" ]; then
     --environment-variables "$ENV_JSON" \
     "$BUNDLE_ID" -- "${LAUNCH_ARGS[@]}" >"$CONSOLE_LOG" 2>&1 &
   CONSOLE_PID=$!
-  trap '[ -n "$CONSOLE_PID" ] && kill "$CONSOLE_PID" 2>/dev/null; [ -n "$CONSOLE_LOG" ] && rm -f "$CONSOLE_LOG"' EXIT
+  # Cleanup only: under set -e a failed kill (the console is usually stopped
+  # already) would turn a passing run's exit status into 1.
+  trap 'kill "$CONSOLE_PID" 2>/dev/null || true; rm -f "$CONSOLE_LOG" || true' EXIT
 else
   xcrun devicectl device process launch --terminate-existing --device "$DEVICE_ID" \
     --environment-variables "$ENV_JSON" \
