@@ -138,7 +138,7 @@ final class ParticipantClockTests: XCTestCase {
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.protocolClasses = [MockURLProtocol.self]
         return IngestClient(
-            configuration: BridgeConfiguration(peBaseURL: URL(string: "http://127.0.0.1:9")!, retryDelays: retryDelays),
+            configuration: BridgeConfiguration(peBaseURL: URL(string: "https://127.0.0.1:9")!, retryDelays: retryDelays),
             sessionConfiguration: sessionConfig, clock: clock, sleeper: { _ in })
     }
 
@@ -182,7 +182,7 @@ final class ParticipantClockTests: XCTestCase {
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.protocolClasses = [MockURLProtocol.self]
         let client = IngestClient(
-            configuration: BridgeConfiguration(peBaseURL: URL(string: "http://127.0.0.1:9")!, retryDelays: []),
+            configuration: BridgeConfiguration(peBaseURL: URL(string: "https://127.0.0.1:9")!, retryDelays: []),
             sessionConfiguration: sessionConfig, sleeper: { _ in })
         MockURLProtocol.reset(script: [.init(status: 200, body: okBody)])
         _ = try await client.ingest(samples: [sample])
@@ -197,7 +197,7 @@ final class ParticipantClockTests: XCTestCase {
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.protocolClasses = [MockURLProtocol.self]
         let coordinator = BridgeCoordinator(
-            configuration: BridgeConfiguration(peBaseURL: URL(string: "http://127.0.0.1:9")!, retryDelays: []),
+            configuration: BridgeConfiguration(peBaseURL: URL(string: "https://127.0.0.1:9")!, retryDelays: []),
             sessionConfiguration: sessionConfig, clock: clock)
         MockURLProtocol.reset(script: [.init(status: 200, body: okBody, headers: peHeader(1))])
         await coordinator.deliver([sample])
@@ -215,7 +215,7 @@ final class ParticipantClockTests: XCTestCase {
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.protocolClasses = [MockURLProtocol.self]
         let pim = PIMClient(
-            configuration: PIMConfiguration(pimBaseURL: URL(string: "http://127.0.0.1:9")!, bridgeId: "bridge-1",
+            configuration: PIMConfiguration(pimBaseURL: URL(string: "https://127.0.0.1:9")!, bridgeId: "bridge-1",
                                             pimToken: "t", retryDelays: []),
             sessionConfiguration: sessionConfig, clock: clock, sleeper: { _ in })
         let suite = "clock-mirror-\(UUID().uuidString)"
