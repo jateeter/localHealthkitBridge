@@ -59,6 +59,9 @@ public actor PIMClient {
     public static let ownerApprovalHeader = "x-opencommons-owner-approved"
 
     private let configuration: PIMConfiguration
+    /// The bridge's participant clock, shared with `IngestClient`: every
+    /// request is a send stamped `RE-Clock` and every response a receive.
+    public let clock: ParticipantClock?
     private let session: URLSession
     private let sleeper: @Sendable (TimeInterval) async -> Void
 
@@ -74,11 +77,13 @@ public actor PIMClient {
         configuration: PIMConfiguration,
         sessionConfiguration: URLSessionConfiguration = .ephemeral,
         trustAnchorsDER: [Data] = [],
+        clock: ParticipantClock? = nil,
         sleeper: @escaping @Sendable (TimeInterval) async -> Void = { seconds in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         }
     ) {
         self.configuration = configuration
+        self.clock = clock
         sessionConfiguration.timeoutIntervalForRequest = configuration.requestTimeout
         IngestClient.applyTransportProfile(to: sessionConfiguration)
         #if canImport(Security)
@@ -112,7 +117,7 @@ public actor PIMClient {
 
     /// `POST sync/preview`: PIM maps and reconciles the batch and writes nothing.
     public func preview(_ batch: MirrorBatch) async throws -> MirrorPreview {
-        try await send("POST", "/api/integrations/healthkit/sync/preview", body: stamped(batch))
+        try await send("POST", "/api/integrations/healthkit/sync/preview", body: try await stamped(batch))
     }
 
     /// `POST sync/apply` with the owner-approval header. Refused locally,
@@ -120,7 +125,7 @@ public actor PIMClient {
     public func apply(_ batch: MirrorBatch, approval: OwnerApproval) async throws -> MirrorApplyResult {
         guard approval.covers(batch) else { throw MirrorError.approvalDoesNotMatchBatch }
         return try await send("POST", "/api/integrations/healthkit/sync/apply",
-                              body: stamped(batch), ownerApproved: true)
+                              body: try await stamped(batch), ownerApproved: true)
     }
 
     // MARK: - Transport
@@ -132,10 +137,27 @@ public actor PIMClient {
     }
     private struct Envelope<T: Decodable>: Decodable { let data: T }
 
-    private func stamped(_ batch: MirrorBatch) -> MirrorBatch {
+    /// The batch's clock, taken when it is stored (staged); nil without a clock.
+    public func storeClock() async throws -> ClockStamp? {
+        guard let clock else { return nil }
+        return try await clockCall { try await clock.stampStore() }
+    }
+
+    private func stamped(_ batch: MirrorBatch) async throws -> MirrorBatch {
         var batch = batch
         batch.bridgeId = batch.bridgeId ?? configuration.bridgeId
+        if batch.clock == nil, let clock {
+            batch.clock = try await clockCall { try await clock.stampStore() }
+        }
         return batch
+    }
+
+    private func clockCall<T>(_ body: () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch {
+            throw MirrorError.clock(String(describing: error))
+        }
     }
 
     private func send<Body: Encodable, Response: Decodable>(
@@ -163,11 +185,20 @@ public actor PIMClient {
             if attempt > 0 { await sleeper(configuration.retryDelays[attempt - 1]) }
             let data: Data
             let response: URLResponse
+            var attemptRequest = request
+            if let clock {
+                attemptRequest.setValue(try await clockCall { try await clock.stampSend() },
+                                        forHTTPHeaderField: ParticipantClock.headerName)
+            }
             do {
-                (data, response) = try await session.data(for: request)
+                (data, response) = try await session.data(for: attemptRequest)
             } catch {
                 lastError = .transport(String(describing: type(of: error)))
                 continue
+            }
+            if let clock {
+                let header = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: ParticipantClock.headerName)
+                try await clockCall { try await clock.receive(header: header) }
             }
             guard let http = response as? HTTPURLResponse else { throw MirrorError.invalidResponse }
             switch http.statusCode {

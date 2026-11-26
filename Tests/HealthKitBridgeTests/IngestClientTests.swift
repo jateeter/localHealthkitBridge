@@ -6,6 +6,7 @@ final class MockURLProtocol: URLProtocol {
     struct Scripted {
         var status: Int
         var body: Data
+        var headers: [String: String]? = nil
     }
 
     nonisolated(unsafe) static var script: [Scripted] = []
@@ -38,7 +39,7 @@ final class MockURLProtocol: URLProtocol {
             return
         }
         let response = HTTPURLResponse(
-            url: request.url!, statusCode: step.status, httpVersion: "HTTP/1.1", headerFields: nil)!
+            url: request.url!, statusCode: step.status, httpVersion: "HTTP/1.1", headerFields: step.headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: step.body)
         client?.urlProtocolDidFinishLoading(self)

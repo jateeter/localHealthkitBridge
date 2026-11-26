@@ -41,7 +41,8 @@ final class MirrorModel: ObservableObject {
         }
         let client = PIMClient(configuration: PIMConfiguration(
             pimBaseURL: url,
-            pimToken: token.isEmpty ? nil : token))
+            pimToken: token.isEmpty ? nil : token),
+            clock: BridgeClock.shared)
         let made = MirrorCoordinator(client: client)
         coordinator = made
         configuredFor = key

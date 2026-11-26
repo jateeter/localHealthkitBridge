@@ -75,7 +75,7 @@ final class BridgeModel: ObservableObject {
             bridgeId: bridgeId,
             bridgeToken: bridgeToken.isEmpty ? nil : bridgeToken
         )
-        let coordinator = BridgeCoordinator(configuration: config)
+        let coordinator = BridgeCoordinator(configuration: config, clock: BridgeClock.shared)
         self.coordinator = coordinator
         eventTask?.cancel()
         eventTask = Task { [weak self] in
@@ -104,6 +104,7 @@ final class BridgeModel: ObservableObject {
             appendLocal(.info, "Normalized PE base URL to \(peBaseURL)")
         }
         appendLocal(.info, "Configured for \(url.absoluteString) as \(bridgeId)")
+        appendLocal(BridgeClock.shared == nil ? .alert : .info, BridgeClock.summary)
     }
 
     func authorize() async {

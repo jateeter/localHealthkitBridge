@@ -243,6 +243,43 @@ pe_service "$PE_BASE_URL/api/sources" \
   | jq -r '.sources[] | select(.origin == "healthkit") | "  \(.sensorId) @ [\(.region.offset):\(.region.offset + .region.length)] = \(.lastValue)"'
 echo "PASS: $found healthkit sensors live on the PE ($changed)"
 
+# The bridge as a clock participant (RealityEngine_CI#600, #49): the app prints
+# one PHI-free line per delivery, `HealthKitBridge clock instance=<uuid>
+# stored=<n> sent=<n> pe=<uuid>:<n> now=<n>`. An ingest raises the PE's lamport
+# past the bridge's (pe > sent), the bridge's past the PE's answer (now > pe),
+# and the PE's own clock agrees (/api/clock is the same participant, at least
+# that far on). The console is captured on the PIM path, the one the regression
+# lane runs.
+if [ -n "$CONSOLE_LOG" ]; then
+  clock_line=""
+  for _ in $(seq 1 15); do
+    clock_line="$(grep -m1 'HealthKitBridge clock instance=' "$CONSOLE_LOG" 2>/dev/null || true)"
+    [ -n "$clock_line" ] && break
+    sleep 2
+  done
+  [ -n "$clock_line" ] || { kill "$CONSOLE_PID" 2>/dev/null || true; echo "FAIL: the app printed no clock line (is the build older than #49, or is its Keychain clock unavailable?)"; exit 1; }
+  field() { sed -n "s/.* $1=\([^ ]*\).*/\1/p" <<<"$clock_line"; }
+  bridge_uuid="$(field instance)"; sent="$(field sent)"; now="$(field now)"; pe_field="$(field pe)"
+  pe_uuid="${pe_field%%:*}"; pe_lamport="${pe_field##*:}"
+  echo "   bridge $bridge_uuid sent lamport=$sent; PE $pe_uuid answered lamport=$pe_lamport; bridge now $now"
+  [ "$pe_field" != none ] || { kill "$CONSOLE_PID" 2>/dev/null || true; echo "FAIL: the PE's ingest response carried no RE-Clock"; exit 1; }
+  [ "$pe_lamport" -gt "$sent" ] || { kill "$CONSOLE_PID" 2>/dev/null || true; echo "FAIL: the PE's lamport ($pe_lamport) did not move past the bridge's ($sent)"; exit 1; }
+  [ "$now" -gt "$pe_lamport" ] || { kill "$CONSOLE_PID" 2>/dev/null || true; echo "FAIL: the bridge did not move past the PE's answer ($now <= $pe_lamport)"; exit 1; }
+  # The body is the clock at the PE's newest committed step; its current
+  # lamport is the response's own RE-Clock header (SURFACE_SPEC "The instance clock").
+  clock_headers="$(mktemp)"
+  pe_clock="$(pe_service -D "$clock_headers" "$PE_BASE_URL/api/clock" || true)"
+  pe_now="$(tr -d '\r' <"$clock_headers" | sed -n 's/^[Rr][Ee]-[Cc]lock: *instance=\([0-9a-f-]*\); *lamport=\([0-9]*\)$/\1 \2/p' | tail -1)"
+  rm -f "$clock_headers"
+  [ "$(jq -r '.instance // empty' <<<"$pe_clock")" = "$pe_uuid" ] && [ "${pe_now%% *}" = "$pe_uuid" ] \
+    || { kill "$CONSOLE_PID" 2>/dev/null || true; echo "FAIL: the PE's /api/clock is not the participant that answered the ingest"; exit 1; }
+  [ "${pe_now##* }" -gt "$pe_lamport" ] \
+    || { kill "$CONSOLE_PID" 2>/dev/null || true; echo "FAIL: the PE's clock (${pe_now##* }) is not past its own ingest answer ($pe_lamport)"; exit 1; }
+  echo "PASS: an ingest raised the PE's lamport past the bridge's, and the bridge's past the PE's"
+else
+  echo "SKIP: the clock check reads the app's console, captured only with PIM_BASE_URL"
+fi
+
 if [ -n "$PIM_BASE_URL" ]; then
   echo "── PIM leg: the app at $PIM_BASE_URL"
   probe=""

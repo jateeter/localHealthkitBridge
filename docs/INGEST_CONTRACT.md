@@ -25,6 +25,7 @@ Batch (preferred — the iOS bridge always sends batches):
   "bridgeId": "healthkit-ios-bridge",
   "bridgeToken": "<token, when configured>",
   "anchorToken": "<opaque client sync cursor, optional>",
+  "clock": { "instance": "<bridge participant UUID>", "lamport": 1027 },
   "samples": [
     {
       "type": "HKCorrelationTypeIdentifierBloodPressure",
@@ -54,6 +55,7 @@ Field rules:
   client can confirm which sync cursor a response corresponds to.
 - `resyncId` — optional; set when the batch answers a resync request. See
   *Scope and resync*.
+- `clock` — optional; the bridge's clock when it stored the batch. See *Clock*.
 
 ## Authentication
 
@@ -224,6 +226,60 @@ bridge, newest last, capped at 32.
 
 HTTP status: `200` all resolved · `207` partial · `400` all unmapped ·
 `401` bad token.
+
+Every response, a `400` or `401` included, carries the PE's `RE-Clock` header
+(*Clock*).
+
+## Clock
+
+The bridge is a Lamport clock participant (RealityEngine_CI#600; the rules
+are RealityEngine_CI `SURFACE_SPEC.md`, "The instance clock"). Each PE is one too,
+under its `pe_uuid`.
+
+**The bridge's clock.** One UUID and one Lamport counter for the install, kept
+in the Keychain (`KeychainClockStore`), so a reinstall keeps them; only the
+user's reset starts a new participant. The stored value is a high-water mark
+reserved 1024 ticks ahead, as an engine's clock directory is: a launch resumes
+from the mark, a tick past it writes the next block first, and a receive that
+jumps past it writes `received + 1 + 1024` before using it. No tick is issued
+twice. A clock that cannot be made durable stamps nothing: the bridge then
+delivers unstamped, as a legacy caller, and says so in its sync log.
+
+**The header**, on every request the bridge makes (ingest and `GET /status`,
+and its requests to PIM) and on every PE response:
+
+```
+RE-Clock: instance=<uuid>; lamport=<n>
+```
+
+A canonical lower-case UUID and a decimal in `[0, 2^53 - 1]` with no sign and
+no leading zeros, in that order, separated by `;` with optional spaces.
+
+- **A request is a send.** The bridge ticks, then stamps it. Each retry is a
+  send of its own, stamped afresh.
+- **A response is a receive.** The bridge sets
+  `lamport = max(local, received) + 1`, or `local + 1` when the response
+  carries none (a PIM response, a PE that predates the clock). The bridge
+  cannot refuse a response, so a malformed one counts as none.
+- **The PE applies the receive rule** before it handles the request: an ingest
+  with `RE-Clock` moves the PE's `lamport` past the bridge's. A malformed
+  header is refused with `400 {"error": "malformed RE-Clock header"}` before
+  token or mapping checks, and is still a receive. Absent is accepted, as a
+  local event, so a bridge without a clock keeps working.
+
+**The body `clock`.** Storing a message is an event: the bridge ticks when it
+creates a batch and writes `{instance, lamport}` into the body as `clock`. A
+header does not survive storage, so a batch queued offline and sent later keeps
+the order it was created in, while each attempt to send it is stamped when it
+is sent; the body `clock` is always below the request's header. The PE
+accepts the field and records the header; nothing in the PE's answer depends
+on `clock`. The mirror to PIM carries the same field (`MIRROR_CONTRACT.md`
+§6).
+
+**Comparison.** `RE-Clock` headers and the body `clock` are participant facts,
+left out of cross-runtime byte comparison. Parity is enforced by
+`RealityEngine_Machines` `healthkit-ingest-contract.spec.ts` on every PE the
+instance registry lists.
 
 ## Transport
 

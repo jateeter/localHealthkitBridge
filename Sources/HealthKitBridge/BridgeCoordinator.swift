@@ -37,12 +37,18 @@ public actor BridgeCoordinator {
     /// the window before a re-read sees the flip.
     private var fulfilledResyncIds: Set<String> = []
 
-    public init(configuration: BridgeConfiguration, sessionConfiguration: URLSessionConfiguration = .ephemeral) {
-        self.client = IngestClient(configuration: configuration, sessionConfiguration: sessionConfiguration)
+    /// The bridge's participant clock (RealityEngine_CI#600), kept across
+    /// reconfiguration: a new PE address is the same participant.
+    public let clock: ParticipantClock?
+
+    public init(configuration: BridgeConfiguration, sessionConfiguration: URLSessionConfiguration = .ephemeral,
+                clock: ParticipantClock? = nil) {
+        self.clock = clock
+        self.client = IngestClient(configuration: configuration, sessionConfiguration: sessionConfiguration, clock: clock)
     }
 
     public func reconfigure(_ configuration: BridgeConfiguration, sessionConfiguration: URLSessionConfiguration = .ephemeral) {
-        client = IngestClient(configuration: configuration, sessionConfiguration: sessionConfiguration)
+        client = IngestClient(configuration: configuration, sessionConfiguration: sessionConfiguration, clock: clock)
         emit(.init(kind: .info, message: "Reconfigured → \(configuration.peBaseURL.absoluteString)"))
     }
 
@@ -98,11 +104,19 @@ public actor BridgeCoordinator {
         batchCounter += 1
         print("HealthKitBridge deliver start sampleCount=\(samples.count) anchorToken=batch-\(batchCounter)")
         do {
-            let result = try await client.ingest(samples: samples, anchorToken: "batch-\(batchCounter)")
+            // The batch is stored when it is created; its retries keep this clock.
+            let stored = try await storeClock()
+            let result = try await client.ingest(samples: samples, anchorToken: "batch-\(batchCounter)", batchClock: stored)
             lastSync = Date()
             silenceAlerted = false
             let resolved = result.response.resolved.compactMap(\.sensorId)
             print("HealthKitBridge deliver success status=\(result.statusCode) resolved=\(resolved.count) unmapped=\(result.response.unmapped.count)")
+            if let clock, let sent = result.sentClock {
+                // PHI-free: identities and counters only. The device e2e reads it.
+                let now = await clock.lamport
+                let pe = result.peClock.map { "\($0.instance.uuidString.lowercased()):\($0.lamport)" } ?? "none"
+                print("HealthKitBridge clock instance=\(clock.instance.uuidString.lowercased()) stored=\(stored?.lamport ?? 0) sent=\(sent.lamport) pe=\(pe) now=\(now)")
+            }
             if !resolved.isEmpty {
                 emit(.init(kind: .delivered, message: "HTTP \(result.statusCode) → \(resolved.joined(separator: ", "))"))
             }
@@ -162,6 +176,15 @@ public actor BridgeCoordinator {
             }
         }
         return done
+    }
+
+    private func storeClock() async throws -> ClockStamp? {
+        guard let clock else { return nil }
+        do {
+            return try await clock.stampStore()
+        } catch {
+            throw BridgeError.clock(String(describing: error))
+        }
     }
 
     private func emit(_ event: SyncEvent) {
