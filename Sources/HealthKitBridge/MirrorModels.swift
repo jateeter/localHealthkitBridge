@@ -140,12 +140,18 @@ public struct MirrorBatch: Codable, Equatable, Sendable {
     public var generation: Int?
     /// Metrics seen for the first time; PIM declares them `proposed`.
     public var descriptors: [MetricDescriptor]?
+    /// The bridge's clock when it staged the batch (MIRROR_CONTRACT §6,
+    /// RealityEngine_CI#600): the preview and the apply of one batch carry the
+    /// same value. PIM ignores it; it orders the batch, it grants nothing.
+    public var clock: ClockStamp?
     public var samples: [MirrorSample]
 
-    public init(bridgeId: String? = nil, generation: Int? = nil, descriptors: [MetricDescriptor]? = nil, samples: [MirrorSample]) {
+    public init(bridgeId: String? = nil, generation: Int? = nil, descriptors: [MetricDescriptor]? = nil,
+                clock: ClockStamp? = nil, samples: [MirrorSample]) {
         self.bridgeId = bridgeId
         self.generation = generation
         self.descriptors = descriptors
+        self.clock = clock
         self.samples = samples
     }
 }
@@ -248,6 +254,8 @@ public enum MirrorError: Error, Equatable, Sendable {
     case staleGeneration
     /// PIM rejected the request body (400).
     case invalidRequest
+    /// The participant clock could not persist its next tick, so nothing was sent.
+    case clock(String)
     /// The approval was given for a different batch than the one applied.
     case approvalDoesNotMatchBatch
     /// No batch has been previewed.

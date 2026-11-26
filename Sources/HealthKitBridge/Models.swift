@@ -82,6 +82,9 @@ struct IngestRequestBody: Encodable {
     /// Set when the batch fulfils a resync request (INGEST_CONTRACT.md,
     /// "Scope and resync"); omitted from the body otherwise.
     var resyncId: String?
+    /// The bridge's clock when it stored the batch (INGEST_CONTRACT.md,
+    /// "Clock"); omitted without a participant clock.
+    var clock: ClockStamp?
     var samples: [IngestSample]
 }
 
@@ -110,6 +113,11 @@ public struct IngestResult: Sendable {
     public var statusCode: Int
     public var response: IngestResponse
     public var attempts: Int
+    /// The `RE-Clock` the answered attempt was stamped with, and the PE's
+    /// `RE-Clock` on its response (nil without a clock, or from a PE that
+    /// predates it). For diagnostics; the clock has already applied both.
+    public var sentClock: ClockStamp? = nil
+    public var peClock: ClockStamp? = nil
 }
 
 /// GET /api/integrations/healthkit/status payload subset used by the app.
@@ -148,4 +156,6 @@ public enum BridgeError: Error, Equatable, Sendable {
     case unauthorized
     case invalidResponse
     case transport(String)
+    /// The participant clock could not persist its next tick, so nothing was sent.
+    case clock(String)
 }

@@ -15,6 +15,7 @@ This repo contains the iOS HealthKit → Perception Engine bridge: a Swift packa
 - `Sources/HealthKitBridge/HealthKitManager.swift`: authorization, anchored object queries, background delivery.
 - `Sources/HealthKitBridge/SampleNormalizer.swift`: README family tables → pre-normalized `[0,1]` 4-vectors.
 - `Sources/HealthKitBridge/IngestClient.swift`: batch POST, Bearer auth, exponential backoff, anchorToken round-trip.
+- `Sources/HealthKitBridge/ParticipantClock.swift`: the bridge as a Lamport clock participant (RealityEngine_CI#600, #49): one UUID and counter in the Keychain (survives reinstall), reserved 1024 ahead; `RE-Clock` on every PE and PIM request, every response a receive, body `clock` stamped when a batch is stored. The app shares one (`App/Sources/BridgeClock.swift`).
 - `Sources/HealthKitBridge/AnchorStore.swift`: per-type anchor persistence (UserDefaults, Data-based for testability).
 - `Sources/HealthKitBridge/BridgeCoordinator.swift`: wiring of the above.
 - `Sources/HealthKitBridge/Models.swift`: payload/response types mirroring the ingest contract.

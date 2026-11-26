@@ -65,7 +65,9 @@ public actor MirrorCoordinator {
                 && seen.insert(sample.uuid).inserted
         }
         let batch = Array(eligible.prefix(Self.maxBatch))
-        staged = MirrorBatch(generation: current.generation, samples: batch)
+        // Staging stores the batch: its clock is taken now, once, so the
+        // preview and the apply carry the order it was created in.
+        staged = MirrorBatch(generation: current.generation, clock: try await client.storeClock(), samples: batch)
         previewed = nil
         ledger.record(Dictionary(uniqueKeysWithValues: batch.map {
             ($0.uuid, MirrorLedger.Entry(metric: $0.metric, state: .pendingMirror))

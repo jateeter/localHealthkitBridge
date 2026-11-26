@@ -169,6 +169,12 @@ PIM's matching logic on the device and read the whole domain on every sync.)
   ingest is **unchanged**.
 - It records per-sample mirror state from PIM's response. A network or auth
   failure leaves `pendingMirror` and is never reported as mirrored.
+- It carries the bridge's Lamport clock (RealityEngine_CI#600,
+  `INGEST_CONTRACT.md` "Clock"): every request to PIM is stamped `RE-Clock`, and
+  a batch carries `clock`, taken once when it is staged, so its preview and its
+  apply carry the same value. PIM is not a clock participant: it ignores both,
+  and neither grants anything; approval still covers the generation and the
+  sample UUIDs (§7).
 
 ## 7. Consent: approval per batch, and a dynamic approved-metric set
 
